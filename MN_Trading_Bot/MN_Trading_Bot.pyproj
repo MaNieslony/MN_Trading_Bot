@@ -1,0 +1,91 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>81250257-5023-463b-8008-91efc94839b8</ProjectGuid>
+    <ProjectHome>
+    </ProjectHome>
+    <StartupFile>bot.py</StartupFile>
+    <SearchPath>
+    </SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <Name>MN_Trading_Bot</Name>
+    <RootNamespace>MN_Trading_Bot</RootNamespace>
+    <IsWindowsApplication>False</IsWindowsApplication>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="bot_logging.py" />
+    <Compile Include="broker\ib_broker.py" />
+    <Compile Include="broker\ib_errors.py" />
+    <Compile Include="conditions\entry_conditions.py" />
+    <Compile Include="config\loader.py" />
+    <Compile Include="config_trade_ui.py" />
+    <Compile Include="market\adapters.py" />
+    <Compile Include="market\contracts.py" />
+    <Compile Include="market\greeks.py" />
+    <Compile Include="market\index_metadata.py" />
+    <Compile Include="market\indicators.py" />
+    <Compile Include="market\market_data.py" />
+    <Compile Include="market\market_flow.py" />
+    <Compile Include="market\ndx_steering.py" />
+    <Compile Include="market\option_chain.py" />
+    <Compile Include="trade\telegram.py" />
+    <Compile Include="trade\trade_logger.py" />
+    <Compile Include="runtime\context\market_context.py" />
+    <Compile Include="runtime\context\market_wait_context.py" />
+    <Compile Include="runtime\context\schedule_context.py" />
+    <Compile Include="runtime\context\trading_day_context.py" />
+    <Compile Include="runtime\shutdown.py" />
+    <Compile Include="runtime\sleep.py" />
+    <Compile Include="runtime\validation.py" />
+    <Compile Include="trade\position_sizing.py" />
+    <Compile Include="bot.py" />
+    <Compile Include="tradetype\bull_put.py" />
+    <Compile Include="tradetype\pbw.py" />
+    <Compile Include="trade\strike_targets.py" />
+    <Compile Include="trade\combo_factory.py" />
+    <Compile Include="trade\cycle_steps.py" />
+    <Compile Include="trade\execution.py" />
+    <Compile Include="trade\metrics.py" />
+    <Compile Include="trade\pricing.py" />
+    <Compile Include="trade\trading_cycle.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="broker\" />
+    <Folder Include="conditions\" />
+    <Folder Include="config\" />
+    <Folder Include="market\" />
+    <Folder Include="runtime\" />
+    <Folder Include="runtime\context\" />
+    <Folder Include="tradetype\" />
+    <Folder Include="tradetype\__pycache__\" />
+    <Folder Include="trade\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="config\bot_mode_settings.json" />
+    <Content Include="config\broker_settings.json" />
+    <Content Include="config\schedules.json" />
+    <Content Include="config\telegram_settings.json" />
+    <Content Include="config\trade_templates.json" />
+    <Content Include="tradetype\__pycache__\bull_put.cpython-313.pyc" />
+    <Content Include="tradetype\__pycache__\__init__.cpython-313.pyc" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
+  <!-- Uncomment the CoreCompile target to enable the Build command in
+       Visual Studio and specify your pre- and post-build commands in
+       the BeforeBuild and AfterBuild targets below. -->
+  <!--<Target Name="CoreCompile" />-->
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+</Project>

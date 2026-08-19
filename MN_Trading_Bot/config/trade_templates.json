@@ -1,0 +1,150 @@
+[
+  {
+    "TEMPLATENAME": "SPX-FFBPS",
+    "TRADE_TYPE": "BULL_PUT",
+    "SYMBOL": "SPX",
+    "COMMISSION_PER_CONTRACT": 1.64,
+	
+    "__SECTION__LEG_DEFINITION": "=========================",	
+    "LEG1_ACTION": "SELL",
+    "LEG1_PUT_CALL": "P",
+    "LEG1_QTY": 1,
+    "LEG1_TARGET": 45,
+    "LEG1_TARGET_TYPE": "Delta",
+    "LEG1_DTE": 4,
+	
+    "LEG2_ACTION": "BUY",
+    "LEG2_PUT_CALL": "P",
+    "LEG2_QTY": 1,
+    "LEG2_TARGET": -10,
+    "LEG2_TARGET_TYPE": "StrikeOffset_Leg1",
+    "LEG2_DTE": 4,
+
+    "__SECTION__EXECUTION": "Execution / Sweep limits",
+    "MIN_SWEEP_PRICE": -5.6,
+    "MAX_SWEEP_PRICE": -2.5,
+    "MAX_SWEEP_ATTEMPTS": 10,
+    "SWEEP_WAIT_SECONDS": 5,
+    "SWEEP_STEP": 0.05
+  },
+  {
+    "TEMPLATENAME": "SPX-10BPS",
+    "TRADE_TYPE": "BULL_PUT",
+    "SYMBOL": "SPX",
+    "COMMISSION_PER_CONTRACT": 1.64,
+	
+    "__SECTION__LEG_DEFINITION": "=========================",	
+    "LEG1_ACTION": "SELL",
+    "LEG1_PUT_CALL": "P",
+    "LEG1_QTY": 1,
+    "LEG1_TARGET": 35,
+    "LEG1_TARGET_TYPE": "Delta",
+    "LEG1_DTE": 0,
+	
+    "LEG2_ACTION": "BUY",
+    "LEG2_PUT_CALL": "P",
+    "LEG2_QTY": 1,
+    "LEG2_TARGET": -10,
+    "LEG2_TARGET_TYPE": "StrikeOffset_Leg1",
+    "LEG2_DTE": 0,
+	
+    "__SECTION__EXECUTION": "Execution / Sweep limits",
+    "MIN_SWEEP_PRICE": -3.5,
+    "MAX_SWEEP_PRICE": -1.10,
+    "MAX_SWEEP_ATTEMPTS": 10,
+    "SWEEP_WAIT_SECONDS": 5,
+    "SWEEP_STEP": 0.05
+  },
+  {
+    "TEMPLATENAME": "NDX-50BPS",
+    "TRADE_TYPE": "BULL_PUT",
+    "SYMBOL": "NDX",
+    "COMMISSION_PER_CONTRACT": 1.8,
+
+    "__SECTION__LEG_DEFINITION": "=========================",
+    "LEG1_ACTION": "SELL",
+    "LEG1_PUT_CALL": "P",
+    "LEG1_QTY": 1,
+    "LEG1_TARGET": 2,
+    "LEG1_TARGET_TYPE": "Delta",
+    "LEG1_DTE": 0,
+
+    "LEG2_ACTION": "BUY",
+    "LEG2_PUT_CALL": "P",
+    "LEG2_QTY": 1,
+    "LEG2_TARGET": -50,
+    "LEG2_TARGET_TYPE": "StrikeOffset_Leg1",
+    "LEG2_DTE": 0,
+
+    "__SECTION__EXECUTION": "Execution / Sweep limits",
+    "MIN_SWEEP_PRICE": -0.6,
+    "MAX_SWEEP_PRICE": -0.3,
+    "MAX_SWEEP_ATTEMPTS": 20,
+    "SWEEP_WAIT_SECONDS": 10,
+    "SWEEP_STEP": 0.02,
+	
+    "__SECTION__RESCAN_CONTROL": "=========================",
+    "MAX_RESCAN_ATTEMPTS": 6,
+	
+    "__SECTION__DELTA_STEERING": "=========================",
+    "DELTA_TARGET_OFFSET": 0.2,
+    "DELTA_MAX_ABS": 5.0,
+    "DELTA_RESCAN_EXPANSION": 0.5,
+
+    "__SECTION__SHORT_LEG_STEERING": "=========================",
+    "SHORT_LEG_MID_MIN": 1.0,
+    "SHORT_LEG_MID_MAX": 2.5,
+    "SHORT_LEG_MID_EXPANSION": 0.25,
+
+    "__SECTION__STRIKE_WINDOW": "Strike scan safetey",
+    "STRIKE_STEP": 10,
+    "STRIKE_UPPER_OFFSET": 250,
+    "STRIKE_LOWER_OFFSET": 450,
+
+    "__SECTION__MAX_STRIKE_SCAN": "Max Strike safetey, STRIKE_UPPER_OFFSET and STRIKE_LOWER_OFFSET automatically determines the MAX_STRIKE_SCAN, this is just for security reasons",
+    "MAX_STRIKE_SCAN": 30		
+  },
+  {
+    "TEMPLATENAME": "SPX-PBW-55-35",
+    "TRADE_TYPE": "PBW",
+    "SYMBOL": "SPX",
+    "COMMISSION_PER_CONTRACT": 1.64,
+  
+    "__SECTION__LEG_DEFINITION": "=========================",
+    "LEG1_ACTION": "SELL",
+    "LEG1_PUT_CALL": "P",
+    "LEG1_QTY": 2,
+    "LEG1_TARGET": -1.00,
+    "LEG1_TARGET_TYPE": "PercentageOTM",
+    "LEG1_DTE": 75,
+  
+    "LEG2_ACTION": "BUY",
+    "LEG2_PUT_CALL": "P",
+    "LEG2_QTY": 1,
+    "LEG2_TARGET": -55,
+    "LEG2_TARGET_TYPE": "StrikeOffset_Leg1",
+    "LEG2_DTE": 75,
+  
+    "LEG3_ACTION": "BUY",
+    "LEG3_PUT_CALL": "P",
+    "LEG3_QTY": 1,
+    "LEG3_TARGET": 35,
+    "LEG3_TARGET_TYPE": "StrikeOffset_Leg1",
+    "LEG3_DTE": 75,
+    
+    "__SECTION__EXECUTION": "Execution / Sweep limits",
+    "MIN_SWEEP_PRICE": -7.0,
+    "MAX_SWEEP_PRICE": -2.0,
+    "MAX_SWEEP_ATTEMPTS": 20,
+    "SWEEP_WAIT_SECONDS": 20,
+    "SWEEP_STEP": 0.05,
+	
+    "__SECTION__RESCAN_CONTROL": "=========================",
+    "MAX_RESCAN_ATTEMPTS": 4,	
+  
+    "__SECTION__PROFIT_TARGET": "=========================",
+    "PROFIT_TARGET_ENABLED": true,
+    "PROFIT_TARGET_PCT": 40,
+    "PROFIT_TARGET_ETH": true
+  }
+]
