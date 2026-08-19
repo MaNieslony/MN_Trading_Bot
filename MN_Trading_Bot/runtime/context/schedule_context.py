@@ -92,10 +92,9 @@ class ScheduleContext:
         bot.LEG3_DTE = cfg.get("LEG3_DTE")
 
         # ------------------------------------------------------------
-        # Normalize optional 3-leg parameters (PBW safety)
+        # Normalize optional 3-leg parameters (PBW / Iron Condor safety)
         # ------------------------------------------------------------
         if bot.LEG3_QTY is None:
-            # Non-PBW strategies → treat as 0 (no third leg)
             bot.LEG3_QTY = 0
         else:
             try:
@@ -120,7 +119,69 @@ class ScheduleContext:
         if bot.LEG3_QTY > 0:
             if not bot.LEG3_ACTION or not bot.LEG3_PUT_CALL:
                 raise ValueError(
-                    f"❌ LEG3_ACTION and LEG3_PUT_CALL required for PBW "
+                    f"❌ LEG3_ACTION and LEG3_PUT_CALL required for PBW/Iron Condor "
+                    f"(schedule={bot.STRATEGY_NAME})"
+                )
+
+        # ------------------------------------------------------------
+        # Optional 4-leg scan parameters (present only for Iron Condor)
+        # ------------------------------------------------------------
+        bot.LEG4_ACTION = cfg.get("LEG4_ACTION")
+        bot.LEG4_PUT_CALL = cfg.get("LEG4_PUT_CALL")
+        bot.LEG4_QTY = cfg.get("LEG4_QTY")
+        bot.LEG4_TARGET = cfg.get("LEG4_TARGET")
+        bot.LEG4_TARGET_TYPE = cfg.get("LEG4_TARGET_TYPE")
+        bot.LEG4_DTE = cfg.get("LEG4_DTE")
+
+        if bot.LEG4_QTY is None:
+            bot.LEG4_QTY = 0
+        else:
+            try:
+                bot.LEG4_QTY = int(bot.LEG4_QTY)
+                if bot.LEG4_QTY <= 0:
+                    raise ValueError
+            except Exception:
+                raise ValueError(
+                    f"❌ LEG4_QTY must be a positive integer "
+                    f"(schedule={bot.STRATEGY_NAME}, value={cfg.get('LEG4_QTY')})"
+                )
+
+        if bot.LEG4_TARGET is not None:
+            try:
+                bot.LEG4_TARGET = float(bot.LEG4_TARGET)
+            except Exception:
+                raise ValueError(
+                    f"❌ LEG4_TARGET must be numeric "
+                    f"(schedule={bot.STRATEGY_NAME}, value={cfg.get('LEG4_TARGET')})"
+                )
+
+        if bot.LEG4_QTY > 0:
+            if not bot.LEG4_ACTION or not bot.LEG4_PUT_CALL:
+                raise ValueError(
+                    f"❌ LEG4_ACTION and LEG4_PUT_CALL required for Iron Condor "
+                    f"(schedule={bot.STRATEGY_NAME})"
+                )
+
+        # ------------------------------------------------------------
+        # Optional RUT Iron Condor steering parameters
+        # ------------------------------------------------------------
+        bot.IV_RANK_MATRIX = cfg.get("IV_RANK_MATRIX")
+        bot.IV_RANK_LOOKBACK_DAYS = cfg.get("IV_RANK_LOOKBACK_DAYS", 365)
+        bot.LATE_ENTRY_CUTOFF_ET = cfg.get("LATE_ENTRY_CUTOFF_ET", "12:00:00")
+        bot.MIN_SPREAD_WIDTH = cfg.get("MIN_SPREAD_WIDTH")
+        bot.MAX_SPREAD_WIDTH = cfg.get("MAX_SPREAD_WIDTH")
+        bot.PUT_DELTA_WINDOW = cfg.get("PUT_DELTA_WINDOW", 300)
+        bot.CALL_DELTA_WINDOW = cfg.get("CALL_DELTA_WINDOW", 300)
+
+        if bot.TRADE_TYPE == "IRON_CONDOR":
+            if not bot.IV_RANK_MATRIX:
+                raise ValueError(
+                    f"❌ IRON_CONDOR requires IV_RANK_MATRIX in template "
+                    f"(schedule={bot.STRATEGY_NAME})"
+                )
+            if bot.MIN_SPREAD_WIDTH is None or bot.MAX_SPREAD_WIDTH is None:
+                raise ValueError(
+                    f"❌ IRON_CONDOR requires MIN_SPREAD_WIDTH/MAX_SPREAD_WIDTH "
                     f"(schedule={bot.STRATEGY_NAME})"
                 )
 
@@ -183,11 +244,7 @@ class ScheduleContext:
         # Profit Target parameters from trade template
         # ------------------------------------------------------------
         bot.PROFIT_TARGET_ENABLED = bool(cfg.get("PROFIT_TARGET_ENABLED", False))
-
-        # Prozentwert (50 bedeutet 50%)
         bot.PROFIT_TARGET_PCT = float(cfg.get("PROFIT_TARGET_PCT", 50))
-
-        # Extended Trading Hours / outsideRth
         bot.PROFIT_TARGET_ETH = bool(cfg.get("PROFIT_TARGET_ETH", False))
 
         if bot.PROFIT_TARGET_ENABLED:

@@ -22,6 +22,7 @@ def get_option_chain(
     - IB returns multiple option chains per index (exchange + tradingClass).
     - SPX  -> SPXW
     - NDX  -> NDXP (forced, no fallback to NDX)
+    - RUT  -> RUTW (fallback RUT, dann erste SMART-Chain – bitte im DEBUG-Log verifizieren!)
     - Strike filtering is symbol-dependent (NDX needs a much wider window).
     """
     try:
@@ -86,6 +87,31 @@ def get_option_chain(
                 )
                 return None, []
 
+        # --- RUT: RUTW, fallback RUT, fallback erste SMART-Chain   ---
+        elif symbol == "RUT":
+            for preferred_class in ("RUTW", "RUT"):
+                for chain in chains:
+                    if chain.exchange == "SMART" and chain.tradingClass == preferred_class:
+                        matching_chain = chain
+                        logger.debug(f"Selected {preferred_class} option chain for RUT")
+                        break
+                if matching_chain:
+                    break
+
+            if not matching_chain:
+                for chain in chains:
+                    if chain.exchange == "SMART":
+                        matching_chain = chain
+                        logger.warning(
+                            f"No RUTW/RUT SMART chain found – falling back to "
+                            f"tradingClass={chain.tradingClass} (bitte verifizieren!)"
+                        )
+                        break
+
+            if not matching_chain:
+                logger.error("No SMART option chain found for RUT")
+                return None, []
+
         else:
             logger.error(f"Unsupported symbol for option chain: {symbol}")
             return None, []
@@ -115,6 +141,8 @@ def get_option_chain(
                 return 800
             if sym == "SPX":
                 return 150
+            if sym == "RUT":
+                return 150
             return 50
 
         if current_price:
@@ -139,7 +167,6 @@ def get_option_chain(
     except Exception as e:
         logger.error(f"Error getting option chain: {e}", exc_info=True)
         return None, []
-
 
 def get_best_expiry_by_dte(
     *,
@@ -206,6 +233,29 @@ def get_best_expiry_by_dte(
                 logger.error("No SMART NDXP option chain found for NDX")
                 return None
 
+        elif symbol == "RUT":
+            for preferred_class in ("RUTW", "RUT"):
+                for chain in chains:
+                    if chain.exchange == "SMART" and chain.tradingClass == preferred_class:
+                        matching_chain = chain
+                        break
+                if matching_chain:
+                    break
+
+            if not matching_chain:
+                for chain in chains:
+                    if chain.exchange == "SMART":
+                        matching_chain = chain
+                        logger.warning(
+                            f"No RUTW/RUT SMART chain found – falling back to "
+                            f"tradingClass={chain.tradingClass} (bitte verifizieren!)"
+                        )
+                        break
+
+            if not matching_chain:
+                logger.error("No SMART option chain found for RUT")
+                return None
+
         else:
             logger.error(f"Unsupported symbol for option chain: {symbol}")
             return None
@@ -237,18 +287,15 @@ def get_best_expiry_by_dte(
                 exp_date = datetime.strptime(exp, "%Y%m%d").date()
                 dte = (exp_date - today).days
 
-                # ignore already expired / same-day negative artifacts
                 if dte < 0:
                     continue
 
                 diff = abs(dte - int(target_dte))
 
-                # overall best (fallback)
                 if diff < best_overall_diff:
                     best_overall_diff = diff
                     best_overall = exp
 
-                # best inside range
                 if int(min_dte) <= dte <= int(max_dte):
                     if diff < best_in_range_diff:
                         best_in_range_diff = diff

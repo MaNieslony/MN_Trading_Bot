@@ -143,3 +143,75 @@ def create_combo_contract_3leg(
     logger.info(f"  Leg3: {leg3_action} {leg3_qty}× {int(leg3)}{leg3_put_call}")
 
     return combo
+
+def create_combo_contract_4leg(
+    *,
+    symbol: str,
+    expiry: str,
+    leg1: float,  # short put
+    leg2: float,  # long put
+    leg3: float,  # short call
+    leg4: float,  # long call
+    trading_class: str,
+    leg1_put_call: str,
+    leg2_put_call: str,
+    leg3_put_call: str,
+    leg4_put_call: str,
+    leg1_action: str,
+    leg2_action: str,
+    leg3_action: str,
+    leg4_action: str,
+    leg1_qty: int,
+    leg2_qty: int,
+    leg3_qty: int,
+    leg4_qty: int,
+    min_sweep_price: float,
+    max_sweep_price: float,
+    get_option_conid_callable,
+    logger,
+) -> Contract:
+    """Create 4-leg Iron Condor BAG contract (Short Put / Long Put / Short Call / Long Call)."""
+    c1 = get_option_conid_callable(expiry, leg1, leg1_put_call, trading_class)
+    c2 = get_option_conid_callable(expiry, leg2, leg2_put_call, trading_class)
+    c3 = get_option_conid_callable(expiry, leg3, leg3_put_call, trading_class)
+    c4 = get_option_conid_callable(expiry, leg4, leg4_put_call, trading_class)
+
+    if not all([c1, c2, c3, c4]):
+        raise ValueError("Iron Condor: Failed to qualify one or more option contracts")
+
+    def mk(con, qty, action):
+        cl = ComboLeg()
+        cl.conId = con.conId
+        cl.ratio = int(qty)
+        cl.action = action
+        cl.exchange = "SMART"
+        return cl
+
+    combo = Contract()
+    combo.symbol = symbol
+    combo.secType = "BAG"
+    combo.currency = "USD"
+    combo.exchange = "SMART"
+    combo.comboLegs = [
+        mk(c1, leg1_qty, leg1_action),
+        mk(c2, leg2_qty, leg2_action),
+        mk(c3, leg3_qty, leg3_action),
+        mk(c4, leg4_qty, leg4_action),
+    ]
+
+    combo._expiry = expiry
+    combo._trading_class = trading_class
+    combo._leg1_strike = leg1
+    combo._leg2_strike = leg2
+    combo._leg3_strike = leg3
+    combo._leg4_strike = leg4
+    combo._min_sweep_price = min_sweep_price
+    combo._max_sweep_price = max_sweep_price
+
+    logger.info("✅ Iron Condor combo created:")
+    logger.info(f"  Leg1 (Short Put):  {leg1_action} {leg1_qty}× {int(leg1)}P")
+    logger.info(f"  Leg2 (Long Put):   {leg2_action} {leg2_qty}× {int(leg2)}P")
+    logger.info(f"  Leg3 (Short Call): {leg3_action} {leg3_qty}× {int(leg3)}C")
+    logger.info(f"  Leg4 (Long Call):  {leg4_action} {leg4_qty}× {int(leg4)}C")
+
+    return combo

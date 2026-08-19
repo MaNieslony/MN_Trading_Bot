@@ -19,6 +19,7 @@ def log_trade(
     leg1_qty: int,
     leg2_qty: int,
     leg3_qty: int,
+    leg4_qty: int,
     commission_per_contract: float,
     is_paper_trading: bool,
     telegram_enabled: bool,
@@ -30,16 +31,17 @@ def log_trade(
     profit_target: dict | None = None,
 ):
     """
-    
+
     """
-    
+
     trade_type_label = trade_type_label or trade_type
 
     try:
         combo = trade.contract
 
         is_pbw = trade_type.upper() in ("PUT_BROKEN_WING", "PBW")
-        
+        is_ic = trade_type.upper() in ("IRON_CONDOR", "RUT_IRON_CONDOR")
+
         # ------------------------------------------------------------
         # Optional selection metrics (robust formatting for CSV)
         # ------------------------------------------------------------
@@ -51,15 +53,16 @@ def log_trade(
         delta_val = metrics.short_delta
         delta_str = f"{delta_val:.4f}" if isinstance(delta_val, (int, float)) else ""
 
+        ic_call_mid_val = getattr(metrics, "ic_short_call_mid", None)
+        ic_call_mid_str = f"{ic_call_mid_val:.2f}" if isinstance(ic_call_mid_val, (int, float)) else ""
+
         leg1_strike = getattr(combo, '_leg1_strike', 0)
         leg2_strike = getattr(combo, '_leg2_strike', 0)
-        leg3_strike = getattr(combo, '_leg3_strike', None) if is_pbw else None
+        leg3_strike = getattr(combo, '_leg3_strike', None) if (is_pbw or is_ic) else None
+        leg4_strike = getattr(combo, '_leg4_strike', None) if is_ic else None
         expiry = getattr(combo, '_expiry', '')
 
         et_tz = pytz.timezone('US/Eastern')
-
-
-
 
         if trade.fills:
             fill_time_utc = trade.fills[0].time
@@ -137,15 +140,25 @@ def log_trade(
         leg1_price, leg1_commission = get_leg_data(leg1_strike, 0)
         leg2_price, leg2_commission = get_leg_data(leg2_strike, 1)
 
-        if is_pbw:
+        if is_ic:
             leg3_price, leg3_commission = get_leg_data(leg3_strike, 2)
+            leg4_price, leg4_commission = get_leg_data(leg4_strike, 3)
+            total_commission = leg1_commission + leg2_commission + leg3_commission + leg4_commission
+        elif is_pbw:
+            leg3_price, leg3_commission = get_leg_data(leg3_strike, 2)
+            leg4_price = leg4_commission = None
             total_commission = leg1_commission + leg2_commission + leg3_commission
         else:
             leg3_price = leg3_commission = None
+            leg4_price = leg4_commission = None
             total_commission = leg1_commission + leg2_commission
 
         if total_commission == 0:
-            if is_pbw:
+            if is_ic:
+                total_contracts = (leg1_qty + leg2_qty + leg3_qty + leg4_qty) * quantity
+                leg3_commission = commission_per_contract * leg3_qty * quantity
+                leg4_commission = commission_per_contract * leg4_qty * quantity
+            elif is_pbw:
                 total_contracts = (leg1_qty + leg2_qty + leg3_qty) * quantity
                 leg3_commission = commission_per_contract * leg3_qty * quantity
             else:
@@ -158,136 +171,142 @@ def log_trade(
             logger.debug(f"Actual commission from fills: ${total_commission:.2f}")
 
         # ------------------------------------------------------------
-        # CSV WRITE 
+        # CSV WRITE
         # ------------------------------------------------------------
         rows = []
 
         # ------------------------------------------------------------
-        # PBW: 3-leg logging (EXACT like standalone)
+        # IRON CONDOR: 4-leg logging
         # ------------------------------------------------------------
-        if is_pbw:
-            
-            # --- Delta handling for PBW ---
+        if is_ic:
+            delta_fmt = lambda d: f"{d:.4f}" if isinstance(d, (int, float)) else ""
+            short_put_delta = getattr(metrics, "ic_short_put_delta", None)
+            short_call_delta = getattr(metrics, "ic_short_call_delta", None)
+
+            # LEG2 – LONG PUT
+            rows.append({
+                'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
+                'Option Expiration Date': expiry_formatted,
+                'Option Strike': int(leg2_strike), 'Option Call/Put': 'Put',
+                'Shares/Contracts': leg2_qty * quantity,
+                'Price/Prem': f"{leg2_price:.2f}", 'Fees & Commissions': f"{leg2_commission:.2f}",
+                'Notes': 'Long Put',
+                'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': '', 'Delta': '',
+            })
+
+            # LEG1 – SHORT PUT
+            rows.append({
+                'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
+                'Option Expiration Date': expiry_formatted,
+                'Option Strike': int(leg1_strike), 'Option Call/Put': 'Put',
+                'Shares/Contracts': -(leg1_qty * quantity),
+                'Price/Prem': f"{leg1_price:.2f}", 'Fees & Commissions': f"{leg1_commission:.2f}",
+                'Notes': 'Short Put',
+                'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': short_mid_str, 'Delta': delta_fmt(short_put_delta),
+            })
+
+            # LEG3 – SHORT CALL
+            rows.append({
+                'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
+                'Option Expiration Date': expiry_formatted,
+                'Option Strike': int(leg3_strike), 'Option Call/Put': 'Call',
+                'Shares/Contracts': -(leg3_qty * quantity),
+                'Price/Prem': f"{leg3_price:.2f}", 'Fees & Commissions': f"{leg3_commission:.2f}",
+                'Notes': 'Short Call',
+                'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': ic_call_mid_str, 'Delta': delta_fmt(short_call_delta),
+            })
+
+            # LEG4 – LONG CALL
+            rows.append({
+                'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
+                'Option Expiration Date': expiry_formatted,
+                'Option Strike': int(leg4_strike), 'Option Call/Put': 'Call',
+                'Shares/Contracts': leg4_qty * quantity,
+                'Price/Prem': f"{leg4_price:.2f}", 'Fees & Commissions': f"{leg4_commission:.2f}",
+                'Notes': 'Long Call',
+                'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': '', 'Delta': '',
+            })
+
+        # ------------------------------------------------------------
+        # PBW: 3-leg logging (unverändert)
+        # ------------------------------------------------------------
+        elif is_pbw:
+
             short_delta = metrics.short_delta
             delta_fmt = lambda d: f"{d:.4f}" if isinstance(d, (int, float)) else ""
 
             leg1_delta = getattr(metrics, "leg1_delta", short_delta)
 
-            # LEG 2 – LOWER WING (BUY)
             rows.append({
-                'Symbol': symbol,
-                'Type': '',
-                'Trade date and time': timestamp,
+                'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
                 'Option Expiration Date': expiry_formatted,
-                'Option Strike': int(leg2_strike),
-                'Option Call/Put': 'Put',
+                'Option Strike': int(leg2_strike), 'Option Call/Put': 'Put',
                 'Shares/Contracts': leg2_qty * quantity,
-                'Price/Prem': f"{leg2_price:.2f}",
-                'Fees & Commissions': f"{leg2_commission:.2f}",
+                'Price/Prem': f"{leg2_price:.2f}", 'Fees & Commissions': f"{leg2_commission:.2f}",
                 'Notes': 'Lower Wing',
-                'Option Action': '',
-                'Action Fees & Commissions': '',
-                'Action Date and time': '',
-                'Expired Contracts': '',
-                'Assigned/Called Away/Exercised Shares': '',
-                'Action Notes': '',
-                'SCHEDULE_NAME': strategy_name,
-                'Short Leg Mid': '',
-                'Delta': '',
+                'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': '', 'Delta': '',
             })
 
-            # LEG 1 – BODY (SELL)
             rows.append({
-                'Symbol': symbol,
-                'Type': '',
-                'Trade date and time': timestamp,
+                'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
                 'Option Expiration Date': expiry_formatted,
-                'Option Strike': int(leg1_strike),
-                'Option Call/Put': 'Put',
+                'Option Strike': int(leg1_strike), 'Option Call/Put': 'Put',
                 'Shares/Contracts': -(leg1_qty * quantity),
-                'Price/Prem': f"{leg1_price:.2f}",
-                'Fees & Commissions': f"{leg1_commission:.2f}",
+                'Price/Prem': f"{leg1_price:.2f}", 'Fees & Commissions': f"{leg1_commission:.2f}",
                 'Notes': 'Body',
-                'Option Action': '',
-                'Action Fees & Commissions': '',
-                'Action Date and time': '',
-                'Expired Contracts': '',
-                'Assigned/Called Away/Exercised Shares': '',
-                'Action Notes': '',
-                'SCHEDULE_NAME': strategy_name,
-                'Short Leg Mid': '',
-                'Delta': delta_fmt(leg1_delta),
+                'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': '', 'Delta': delta_fmt(leg1_delta),
             })
 
-            # LEG 3 – UPPER WING (BUY)
             rows.append({
-                'Symbol': symbol,
-                'Type': '',
-                'Trade date and time': timestamp,
+                'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
                 'Option Expiration Date': expiry_formatted,
-                'Option Strike': int(leg3_strike),
-                'Option Call/Put': 'Put',
+                'Option Strike': int(leg3_strike), 'Option Call/Put': 'Put',
                 'Shares/Contracts': leg3_qty * quantity,
-                'Price/Prem': f"{leg3_price:.2f}",
-                'Fees & Commissions': f"{leg3_commission:.2f}",
+                'Price/Prem': f"{leg3_price:.2f}", 'Fees & Commissions': f"{leg3_commission:.2f}",
                 'Notes': 'Upper Wing',
-                'Option Action': '',
-                'Action Fees & Commissions': '',
-                'Action Date and time': '',
-                'Expired Contracts': '',
-                'Assigned/Called Away/Exercised Shares': '',
-                'Action Notes': '',
-                'SCHEDULE_NAME': strategy_name,
-                'Short Leg Mid': '',
-                'Delta': '',
+                'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': '', 'Delta': '',
             })
 
         # ------------------------------------------------------------
-        # DEFAULT: 2-leg spreads (existing behavior)
+        # DEFAULT: 2-leg spreads (unverändert)
         # ------------------------------------------------------------
         else:
             rows.extend([
                 {
-                    'Symbol': symbol,
-                    'Type': '',
-                    'Trade date and time': timestamp,
+                    'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
                     'Option Expiration Date': expiry_formatted,
-                    'Option Strike': int(leg1_strike),
-                    'Option Call/Put': 'Put',
+                    'Option Strike': int(leg1_strike), 'Option Call/Put': 'Put',
                     'Shares/Contracts': -(leg1_qty * quantity),
-                    'Price/Prem': f"{leg1_price:.2f}",
-                    'Fees & Commissions': f"{leg1_commission:.2f}",
+                    'Price/Prem': f"{leg1_price:.2f}", 'Fees & Commissions': f"{leg1_commission:.2f}",
                     'Notes': f'{trade_type_label} - Short',
-                    'Option Action': '',
-                    'Action Fees & Commissions': '',
-                    'Action Date and time': '',
-                    'Expired Contracts': '',
-                    'Assigned/Called Away/Exercised Shares': '',
-                    'Action Notes': '',
-                    'SCHEDULE_NAME': strategy_name,
-                    'Short Leg Mid': short_mid_str,
-                    'Delta': delta_str
+                    'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                    'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                    'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': short_mid_str, 'Delta': delta_str
                 },
                 {
-                    'Symbol': symbol,
-                    'Type': '',
-                    'Trade date and time': timestamp,
+                    'Symbol': symbol, 'Type': '', 'Trade date and time': timestamp,
                     'Option Expiration Date': expiry_formatted,
-                    'Option Strike': int(leg2_strike),
-                    'Option Call/Put': 'Put',
+                    'Option Strike': int(leg2_strike), 'Option Call/Put': 'Put',
                     'Shares/Contracts': leg2_qty * quantity,
-                    'Price/Prem': f"{leg2_price:.2f}",
-                    'Fees & Commissions': f"{leg2_commission:.2f}",
+                    'Price/Prem': f"{leg2_price:.2f}", 'Fees & Commissions': f"{leg2_commission:.2f}",
                     'Notes': f'{trade_type_label} - Long',
-                    'Option Action': '',
-                    'Action Fees & Commissions': '',
-                    'Action Date and time': '',
-                    'Expired Contracts': '',
-                    'Assigned/Called Away/Exercised Shares': '',
-                    'Action Notes': '',
-                    'SCHEDULE_NAME': strategy_name,
-                    'Short Leg Mid': '',
-                    'Delta': ''
+                    'Option Action': '', 'Action Fees & Commissions': '', 'Action Date and time': '',
+                    'Expired Contracts': '', 'Assigned/Called Away/Exercised Shares': '', 'Action Notes': '',
+                    'SCHEDULE_NAME': strategy_name, 'Short Leg Mid': '', 'Delta': ''
                 }
             ])
 
@@ -302,7 +321,12 @@ def log_trade(
                 writer.writerow(row)
 
         expiry_fmt = datetime.strptime(expiry, "%Y%m%d").strftime("%b%d'%y")
-        if is_pbw:
+        if is_ic:
+            logger.info(
+                f"✅ Trade logged: IRON CONDOR {quantity} {symbol} {expiry_fmt} "
+                f"{int(leg2_strike)}/{int(leg1_strike)}P  {int(leg3_strike)}/{int(leg4_strike)}C"
+            )
+        elif is_pbw:
             logger.info(
                 f"✅ Trade logged: BUY {quantity} {symbol} {expiry_fmt} "
                 f"{int(leg2_strike)}/{int(leg1_strike)}/{int(leg3_strike)} "
@@ -323,12 +347,10 @@ def log_trade(
             expiry_date = datetime.strptime(expiry, '%Y%m%d')
             dte = (expiry_date.date() - now_et.date()).days
 
-            # Credit values (premium_paid is negative for credit fills → abs() makes it human-readable)
             credit_per_contract = abs(premium_paid)
             total_credit = credit_per_contract * quantity * 100
             net_credit = total_credit - total_commission
 
-            # Optional metrics captured during selection (may be missing)
             short_delta = metrics.short_delta
             short_delta_str = f"{short_delta:.3f}" if isinstance(short_delta, (int, float)) else "n/a"
 
@@ -336,7 +358,25 @@ def log_trade(
             if trade_type.upper() in ("BULL_PUT", "BULL_CALL"):
                 spread_width = abs(int(leg1_strike) - int(leg2_strike))
 
-            if is_pbw:
+            extra_ic_line = ""
+            short_delta_label = "Delta (short)"
+
+            if is_ic:
+                short_delta_label = "Delta (short put)"
+                put_width = int(leg1_strike - leg2_strike)
+                call_width = int(leg4_strike - leg3_strike)
+
+                strikes_str = f"{int(leg2_strike)}/{int(leg1_strike)}P  {int(leg3_strike)}/{int(leg4_strike)}C"
+                spread_info = (
+                    f"├ Put-Spread Breite: <b>{put_width} Punkte</b>\n"
+                    f"├ Call-Spread Breite: <b>{call_width} Punkte</b>\n"
+                )
+
+                call_delta_val = getattr(metrics, "ic_short_call_delta", None)
+                call_delta_str = f"{call_delta_val:.3f}" if isinstance(call_delta_val, (int, float)) else "n/a"
+                extra_ic_line = f"├ Delta (short call): <b>{call_delta_str}</b>\n"
+
+            elif is_pbw:
                 lower_wing = int(leg1_strike - leg2_strike)
                 upper_wing = int(leg3_strike - leg1_strike)
 
@@ -348,8 +388,6 @@ def log_trade(
             else:
                 strikes_str = f"{int(leg1_strike)} / {int(leg2_strike)}"
                 spread_info = f"├ Spread Width: <b>{int(spread_width)} points</b>\n"
-
-
 
             msg = f"""🔥 <b>{strategy_name} {trade_type_label} FILLED</b> 🔥
 
@@ -368,8 +406,8 @@ def log_trade(
 ├ Total Credit: <b>${total_credit:.2f}</b>
 ├ Total Commission: <b>${total_commission:.2f}</b>
 ├ Net Credit: <b>${net_credit:.2f}</b>
-├ Delta (short): <b>{short_delta_str}</b>
-"""
+├ {short_delta_label}: <b>{short_delta_str}</b>
+{extra_ic_line}"""
 
             if profit_target:
                 msg += f"""

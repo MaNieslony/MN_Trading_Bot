@@ -9,6 +9,7 @@ from market.market_data import get_current_price as _get_current_price
 from market.market_data import get_rsi as _get_rsi
 from market.market_data import get_sma as _get_sma
 from market.market_data import get_vix_price as _get_vix_price
+from market.market_data import get_iv_rank as _get_iv_rank
 from market.option_chain import get_option_chain as _get_option_chain
 from market.contracts import get_option_conid as _get_option_conid
 from market.contracts import get_index_contract as _get_index_contract
@@ -235,6 +236,15 @@ def get_sma_adapter(bot, period: int, bar_size: str = "1 day"):
 def get_vix_adapter(bot) -> Optional[float]:
     return _get_vix_price(
         ib=bot.ib,
+        logger=bot.logger,
+    )
+
+def get_iv_rank_adapter(bot) -> Optional[float]:
+    return _get_iv_rank(
+        ib=bot.ib,
+        symbol=bot.SYMBOL,
+        get_index_contract_callable=bot.get_SPX_index_contract,
+        lookback_days=getattr(bot, "IV_RANK_LOOKBACK_DAYS", 365),
         logger=bot.logger,
     )
 

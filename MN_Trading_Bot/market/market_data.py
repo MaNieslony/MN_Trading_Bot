@@ -279,3 +279,68 @@ def get_vix_price(
     except Exception as e:
         logger.error(f"Error getting VIX price: {e}")
         return None
+
+def get_iv_rank(
+    *,
+    ib,
+    symbol: str,
+    get_index_contract_callable,
+    lookback_days: int = 365,
+    logger,
+) -> Optional[float]:
+    """
+    52-Wochen IV-Rank via IB Historical Implied-Volatility Bars.
+    IV-Rank = (current_iv - min_iv_52w) / (max_iv_52w - min_iv_52w) * 100
+
+    ACHTUNG: whatToShow='OPTION_IMPLIED_VOLATILITY' muss für den jeweiligen
+    Index-Contract in TWS verfügbar sein – vor Live-Einsatz gegen echte
+    Daten verifizieren.
+    """
+    try:
+        contract = get_index_contract_callable()
+        ib.qualifyContracts(contract)
+
+        bars = ib.reqHistoricalData(
+            contract,
+            endDateTime='',
+            durationStr=f'{int(lookback_days)} D',
+            barSizeSetting='1 day',
+            whatToShow='OPTION_IMPLIED_VOLATILITY',
+            useRTH=True,
+            formatDate=1,
+        )
+
+        if not bars or len(bars) < 20:
+            logger.warning(
+                f"Insufficient IV history for {symbol}: "
+                f"got {len(bars) if bars else 0} bars"
+            )
+            return None
+
+        iv_values = [bar.close for bar in bars if bar.close is not None and bar.close > 0]
+
+        if len(iv_values) < 20:
+            logger.warning(f"Insufficient valid IV values for {symbol}")
+            return None
+
+        current_iv = iv_values[-1]
+        iv_min = min(iv_values)
+        iv_max = max(iv_values)
+
+        if iv_max == iv_min:
+            logger.warning(f"{symbol}: IV range is zero – cannot compute IV-Rank")
+            return None
+
+        iv_rank = (current_iv - iv_min) / (iv_max - iv_min) * 100.0
+        iv_rank = max(0.0, min(100.0, iv_rank))
+
+        logger.info(
+            f"{symbol} IV-Rank(52w): {iv_rank:.1f} "
+            f"(current={current_iv:.4f}, min={iv_min:.4f}, max={iv_max:.4f}, n={len(iv_values)})"
+        )
+
+        return round(iv_rank, 1)
+
+    except Exception as e:
+        logger.error(f"Error calculating IV-Rank for {symbol}: {e}", exc_info=True)
+        return None

@@ -146,5 +146,80 @@
     "PROFIT_TARGET_ENABLED": true,
     "PROFIT_TARGET_PCT": 40,
     "PROFIT_TARGET_ETH": true
-  }
+  },
+  {
+    "TEMPLATENAME": "RUT-IC-DELTA-SYM",
+    "TRADE_TYPE": "IRON_CONDOR",
+    "SYMBOL": "RUT",
+    "COMMISSION_PER_CONTRACT": 1.6,
+
+    "__SECTION__LEG_DEFINITION": "========================= Short Put / Long Put / Short Call / Long Call",
+    "LEG1_ACTION": "SELL",
+    "LEG1_PUT_CALL": "P",
+    "LEG1_QTY": 1,
+    "LEG1_TARGET": 0,
+    "LEG1_TARGET_TYPE": "Delta",
+    "LEG1_DTE": 0,
+    "LEG2_ACTION": "BUY",
+    "LEG2_PUT_CALL": "P",
+    "LEG2_QTY": 1,
+    "LEG2_TARGET": 0,
+    "LEG2_TARGET_TYPE": "StrikeOffset_Leg1",
+    "LEG2_DTE": 0,
+    "LEG3_ACTION": "SELL",
+    "LEG3_PUT_CALL": "C",
+    "LEG3_QTY": 1,
+    "LEG3_TARGET": 0,
+    "LEG3_TARGET_TYPE": "Delta",
+    "LEG3_DTE": 0,
+    "LEG4_ACTION": "BUY",
+    "LEG4_PUT_CALL": "C",
+    "LEG4_QTY": 1,
+    "LEG4_TARGET": 0,
+    "LEG4_TARGET_TYPE": "StrikeOffset_Leg3",
+    "LEG4_DTE": 0,
+
+    "__SECTION__EXECUTION": "Sweep-Grenzen gelten für den GESAMT-Credit (Put-Spread + Call-Spread) - Platzhalter, unbedingt gegen echte Marktpreise prüfen!",
+    "MIN_SWEEP_PRICE": -3.20,
+    "MAX_SWEEP_PRICE": -0.80,
+    "MAX_SWEEP_ATTEMPTS": 15,
+    "SWEEP_WAIT_SECONDS": 10,
+    "SWEEP_STEP": 0.05,
+
+    "__SECTION__RESCAN_CONTROL": "=========================",
+    "MAX_RESCAN_ATTEMPTS": 3,
+
+    "__SECTION__IV_RANK_STEERING": "========================= IV-Rank -> DTE / Delta Matrix",
+    "IV_RANK_LOOKBACK_DAYS": 365,
+    "IV_RANK_MATRIX": [
+        {
+            "MIN_IV_RANK": 0,
+            "MAX_DTE": 13,
+            "DELTA_LIMIT": 0.07
+        },
+        {
+            "MIN_IV_RANK": 20,
+            "MAX_DTE": 11,
+            "DELTA_LIMIT": 0.06
+        },
+        {
+            "MIN_IV_RANK": 30,
+            "MAX_DTE": 10,
+            "DELTA_LIMIT": 0.05
+        },
+        {
+            "MIN_IV_RANK": 40,
+            "MAX_DTE": 9,
+            "DELTA_LIMIT": 0.04
+        }
+    ],
+    "LATE_ENTRY_CUTOFF_ET": "12:00:00",
+
+    "__SECTION__SPREAD_WIDTH": "Punkte pro Seite - manuell an Kontogröße anpassen (< 50k: 20/20, 50-150k: 30-50, > 150k: 50-100)",
+    "STRIKE_STEP": 5,
+    "MIN_SPREAD_WIDTH": 20,
+    "MAX_SPREAD_WIDTH": 20,
+    "PUT_DELTA_WINDOW": 300,
+    "CALL_DELTA_WINDOW": 300
+}
 ]
