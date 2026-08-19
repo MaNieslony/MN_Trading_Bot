@@ -6,6 +6,10 @@ from typing import Dict, List, Optional, Tuple
 
 from market.option_chain import get_best_expiry_by_dte
 from market.ndx_steering import select_ndx_50bps_spread
+
+from market.rut_ic_steering import select_rut_iron_condor, resolve_dte_and_delta_from_iv_rank, is_late_entry, _norm_delta
+from trade.pricing import price_2leg_credit, price_3leg_credit, price_4leg_credit
+
 from trade.metrics import TradeMetrics
 from trade.pricing import price_2leg_credit, price_3leg_credit
 
@@ -22,7 +26,10 @@ def _set_short_mid_from_tickers(metrics: TradeMetrics, tickers) -> None:
         metrics.short_leg_mid = None
 
 def select_expiry(bot) -> str:
-    """Long DTE => best expiry in window, else fixed calendar DTE."""
+    """Long DTE => best expiry in window, IRON_CONDOR => IV-Rank-Steering, else fixed calendar DTE."""
+    if getattr(bot, "TRADE_TYPE", None) == "IRON_CONDOR":
+        return select_expiry_iron_condor(bot)
+
     if int(bot.LEG1_DTE) >= 30:
         target = int(bot.LEG1_DTE)
         return (
@@ -40,12 +47,78 @@ def select_expiry(bot) -> str:
     return (datetime.now() + timedelta(days=int(bot.LEG1_DTE))).strftime("%Y%m%d")
 
 
+def select_expiry_iron_condor(bot) -> str:
+    """
+    IV-Rank -> (max_dte, delta_limit) Matrix auflösen, Late-Entry DTE+1 anwenden,
+    Ergebnis auf bot._ic_* zwischenspeichern (für select_legs), passende Expiry suchen.
+    """
+    import pytz
+    from datetime import time as dt_time
+
+    iv_rank = bot.get_iv_rank()
+    matrix = bot.IV_RANK_MATRIX
+
+    if iv_rank is None:
+        bot.logger.error("RUT-IC: IV-Rank nicht verfügbar – nutze konservativsten Matrix-Eintrag")
+        fallback = min(matrix, key=lambda r: float(r["MIN_IV_RANK"]))
+        target_dte, delta_limit = int(fallback["MAX_DTE"]), float(fallback["DELTA_LIMIT"])
+    else:
+        resolved = resolve_dte_and_delta_from_iv_rank(iv_rank=iv_rank, matrix=matrix)
+        if resolved is None:
+            bot.logger.error("RUT-IC: IV_RANK_MATRIX konnte nicht aufgelöst werden")
+            target_dte, delta_limit = int(matrix[0]["MAX_DTE"]), float(matrix[0]["DELTA_LIMIT"])
+        else:
+            target_dte, delta_limit = resolved
+
+    # Delta-Konvention wie überall sonst im Bot: 4 -> 0.04, 0.04 bleibt 0.04
+    delta_limit = _norm_delta(delta_limit)
+
+    et_tz = pytz.timezone("US/Eastern")
+    now_et = datetime.now(et_tz)
+    h, m, s = [int(x) for x in str(bot.LATE_ENTRY_CUTOFF_ET).split(":")]
+    cutoff = dt_time(h, m, s)
+
+    if is_late_entry(now_et=now_et, late_entry_cutoff_et=cutoff):
+        bot.logger.info(f"RUT-IC: Late Entry (nach {cutoff}) – Ziel-DTE +1")
+        target_dte += 1
+
+    bot._ic_iv_rank = iv_rank
+    bot._ic_target_dte = target_dte
+    bot._ic_delta_limit = delta_limit
+
+    bot.logger.info(
+        f"RUT-IC Steering: IV-Rank={iv_rank if iv_rank is not None else 'n/a'} -> "
+        f"Ziel-DTE={target_dte}, Delta-Grenze={delta_limit:.4f}"
+    )
+
+    expiry = get_best_expiry_by_dte(
+        ib=bot.ib,
+        target_dte=target_dte,
+        min_dte=max(1, target_dte - 5),
+        max_dte=target_dte,
+        get_index_contract_callable=bot.get_SPX_index_contract,
+        logger=bot.logger,
+        debug_mode=bot.DEBUG_MODE,
+    )
+
+    return expiry or (datetime.now() + timedelta(days=target_dte)).strftime("%Y%m%d")
+
+
 def preload_market_data(bot, expiry: str) -> None:
     """Preload option chain + deltas into bot caches if underlying price available."""
     if bot.get_current_price() is None:
         return
 
     bot.preload_option_chain(expiry)
+
+    # RUT Iron Condor holt Put- UND Call-Deltas selbst, fensterbasiert (nur
+    # echte OTM-Kandidaten je Seite), direkt in market/rut_ic_steering.py –
+    # siehe IRON_CONDOR-Bypass in fetch_deltas_if_needed(). Der generische
+    # Put-only Preload über die GESAMTE Chain-Breite (inkl. weit ITM
+    # liegender Strikes auf der Call-Seite) wird dafür nicht gebraucht und
+    # würde nur unnötige IB-Anfragen erzeugen.
+    if getattr(bot, "TRADE_TYPE", "") == "IRON_CONDOR":
+        return
 
     if bot._cached_option_chain and bot._cached_chain_expiry == expiry:
         trading_class_pre, strikes_pre = bot._cached_option_chain
@@ -176,7 +249,9 @@ def fetch_deltas_if_needed(
     - If no cache: do NOT fetch synchronously here (would delay order placement).
 
     Strategy-specific delta refresh (e.g. NDX rescan>=3) is handled inside the
-    steering logic (market/ndx_steering.py).
+    steering logic (market/ndx_steering.py). RUT Iron Condor fetches its own
+    Put- and Call-Deltas inside market/rut_ic_steering.py – generic cache is
+    skipped entirely for that TRADE_TYPE.
     """
 
     if delta_cache is not None:
@@ -188,6 +263,14 @@ def fetch_deltas_if_needed(
     if getattr(bot, "STRATEGY_NAME", "") == "NDX-50BPS":
         bot.logger.warning(
             "No delta cache available for NDX-50BPS (continuing with empty cache; steering may refresh on later rescans)"
+        )
+        empty: Dict[float, float] = {}
+        return empty, empty
+
+    # For IRON_CONDOR (RUT): Steering holt Put+Call-Deltas selbst.
+    if getattr(bot, "TRADE_TYPE", "") == "IRON_CONDOR":
+        bot.logger.debug(
+            "IRON_CONDOR: Delta-Fetch läuft in market/rut_ic_steering.py – generischer Cache übersprungen"
         )
         empty: Dict[float, float] = {}
         return empty, empty
@@ -204,7 +287,6 @@ def fetch_deltas_if_needed(
         )
         bot.preload_deltas(expiry, trading_class, strikes_for_delta)
 
-        # after preload, try to use freshly cached deltas
         refreshed = init_delta_cache(bot, expiry, trading_class)
         if refreshed is not None:
             bot.logger.debug(f"✅ Using freshly fetched deltas ({len(refreshed)} strikes)")
@@ -221,7 +303,7 @@ def fetch_deltas_if_needed(
     return None, None
 
 def select_legs(bot, expiry: str, strikes: List[float], deltas: Dict[float, float], rescan: int, trading_class: str):
-    """Return (leg1, leg2, leg3_or_None) + optional NDX metrics stored on bot."""
+    """Return (leg1, leg2, leg3_or_None, leg4_or_None, metrics)."""
 
     metrics = TradeMetrics()
 
@@ -284,7 +366,46 @@ def select_legs(bot, expiry: str, strikes: List[float], deltas: Dict[float, floa
         metrics.short_leg_mid = result.get("short_mid")
         metrics.short_delta = result.get("short_delta")
 
-        return result["short_strike"], result["long_strike"], None, metrics
+        return result["short_strike"], result["long_strike"], None, None, metrics
+
+    # Special case: RUT Iron Condor uses its own steering module
+    if bot.TRADE_TYPE == "IRON_CONDOR":
+        result = select_rut_iron_condor(
+            strikes=strikes,
+            underlying_price=bot.underlying_price,
+            expiry=expiry,
+            trading_class=trading_class,
+            iv_rank=float(bot.IV_RANK_VALUE),
+            iv_rank_matrix=bot.IV_RANK_MATRIX,
+            delta_limit=bot._ic_delta_limit,
+            strike_step=float(bot.STRIKE_STEP or 5),
+            min_spread_width=float(bot.MIN_SPREAD_WIDTH),
+            max_spread_width=float(bot.MAX_SPREAD_WIDTH),
+            put_delta_window=float(bot.PUT_DELTA_WINDOW),
+            call_delta_window=float(bot.CALL_DELTA_WINDOW),
+            get_option_conid=bot._get_option_conid,
+            ib=bot.ib,
+            wait_for_ticker_data=bot.wait_for_ticker_data,
+            logger=bot.logger,
+        )
+
+        if not result:
+            bot.logger.warning("RUT-IC: kein gültiger Iron Condor gefunden")
+            return None
+
+        metrics.ic_short_put_delta = result.get("short_put_delta")
+        metrics.ic_short_call_delta = result.get("short_call_delta")
+        metrics.ic_put_width = result.get("put_width")
+        metrics.ic_call_width = result.get("call_width")
+        metrics.short_delta = result.get("short_put_delta")
+
+        return (
+            result["short_put_strike"],
+            result["long_put_strike"],
+            result["short_call_strike"],
+            result["long_call_strike"],
+            metrics,
+        )
 
     # Default: use TradeType
     selection = bot.trade_type.select_strikes(
@@ -305,7 +426,6 @@ def select_legs(bot, expiry: str, strikes: List[float], deltas: Dict[float, floa
     if isinstance(selection, tuple) and len(selection) >= 1:
         short_strike = selection[0]
 
-    # robust lookup for strike key (handles float/int and minor rounding)
     key = float(short_strike) if short_strike is not None else None
     val = None
     if key is not None:
@@ -318,22 +438,70 @@ def select_legs(bot, expiry: str, strikes: List[float], deltas: Dict[float, floa
 
     metrics.short_delta = abs(val) if isinstance(val, (int, float)) else None
 
-
     if isinstance(selection, tuple):
         if len(selection) == 2:
             leg1, leg2 = selection
-            return leg1, leg2, None, metrics
+            return leg1, leg2, None, None, metrics
         if len(selection) == 3:
             leg1, leg2, leg3 = selection
-            return leg1, leg2, leg3, metrics
+            return leg1, leg2, leg3, None, metrics
 
     bot.logger.error(f"Invalid strike selection: {selection}")
     return None
 
 
-def price_and_set_last(bot, expiry: str, trading_class: str, leg1: float, leg2: float, leg3: Optional[float], metrics: TradeMetrics) -> bool:
+def price_and_set_last(bot, expiry: str, trading_class: str, leg1: float, leg2: float, leg3: Optional[float], leg4: Optional[float], metrics: TradeMetrics) -> bool:
     """Prices legs and sets bot._last_combo_premium/_natural. Returns True if ok."""
-    if leg3 is not None:
+    if leg4 is not None:
+        # 4-leg Iron Condor (Short Put / Long Put / Short Call / Long Call)
+        c1 = bot._get_option_conid(expiry, leg1, bot.LEG1_PUT_CALL, trading_class)
+        c2 = bot._get_option_conid(expiry, leg2, bot.LEG2_PUT_CALL, trading_class)
+        c3 = bot._get_option_conid(expiry, leg3, bot.LEG3_PUT_CALL, trading_class)
+        c4 = bot._get_option_conid(expiry, leg4, bot.LEG4_PUT_CALL, trading_class)
+
+        if not all([c1, c2, c3, c4]):
+            bot.logger.warning("Iron Condor: failed to qualify one or more option contracts")
+            return False
+
+        tickers = bot.ib.reqTickers(c1, c2, c3, c4)
+
+        if not bot.wait_for_ticker_data(tickers, timeout=1.0):
+            bot.logger.warning("Iron Condor: ticker timeout")
+            return False
+
+        # short put leg = leg1
+        _set_short_mid_from_tickers(metrics, tickers)
+
+        # short call leg = leg3 (index 2)
+        t_short_call = tickers[2]
+        if getattr(t_short_call, "bid", None) and getattr(t_short_call, "ask", None) and t_short_call.bid > 0 and t_short_call.ask > 0:
+            metrics.ic_short_call_mid = (t_short_call.bid + t_short_call.ask) / 2.0
+        else:
+            metrics.ic_short_call_mid = None
+
+        credit_mid, credit_natural = price_4leg_credit(
+            symbol=bot.SYMBOL,
+            expiry=expiry,
+            leg1=leg1, leg2=leg2, leg3=leg3, leg4=leg4,
+            trading_class=trading_class,
+            leg1_put_call=bot.LEG1_PUT_CALL,
+            leg2_put_call=bot.LEG2_PUT_CALL,
+            leg3_put_call=bot.LEG3_PUT_CALL,
+            leg4_put_call=bot.LEG4_PUT_CALL,
+            leg1_action=bot.LEG1_ACTION,
+            leg2_action=bot.LEG2_ACTION,
+            leg3_action=bot.LEG3_ACTION,
+            leg4_action=bot.LEG4_ACTION,
+            leg1_qty=bot.LEG1_QTY,
+            leg2_qty=bot.LEG2_QTY,
+            leg3_qty=bot.LEG3_QTY,
+            leg4_qty=bot.LEG4_QTY,
+            logger=bot.logger,
+            timeout=1.0,
+            tickers=tickers,
+        )
+
+    elif leg3 is not None:
         c1 = bot._get_option_conid(expiry, leg1, bot.LEG1_PUT_CALL, trading_class)
         c2 = bot._get_option_conid(expiry, leg2, bot.LEG2_PUT_CALL, trading_class)
         c3 = bot._get_option_conid(expiry, leg3, bot.LEG3_PUT_CALL, trading_class)
@@ -348,7 +516,6 @@ def price_and_set_last(bot, expiry: str, trading_class: str, leg1: float, leg2: 
             bot.logger.warning("PBW: ticker timeout")
             return False
 
-        # short leg = leg1 (PBW)
         _set_short_mid_from_tickers(metrics, tickers)
 
         credit_mid, credit_natural = price_3leg_credit(
@@ -373,7 +540,6 @@ def price_and_set_last(bot, expiry: str, trading_class: str, leg1: float, leg2: 
         )
 
     else:
-        # --- also capture short-leg mid for reporting ---
         c1 = bot._get_option_conid(expiry, leg1, bot.LEG1_PUT_CALL, trading_class)
         c2 = bot._get_option_conid(expiry, leg2, bot.LEG2_PUT_CALL, trading_class)
 
@@ -384,7 +550,6 @@ def price_and_set_last(bot, expiry: str, trading_class: str, leg1: float, leg2: 
         if not bot.wait_for_ticker_data(tickers, timeout=1.0):
             return False
 
-        # short leg = leg1
         _set_short_mid_from_tickers(metrics, tickers)
 
         credit_mid, credit_natural = price_2leg_credit(
@@ -425,8 +590,37 @@ def price_and_set_last(bot, expiry: str, trading_class: str, leg1: float, leg2: 
     metrics.combo_natural = credit_natural
     return True
 
-def build_combo(bot, expiry: str, trading_class: str, leg1: float, leg2: float, leg3: Optional[float], metrics: TradeMetrics):
+def build_combo(bot, expiry: str, trading_class: str, leg1: float, leg2: float, leg3: Optional[float], leg4: Optional[float], metrics: TradeMetrics):
     """Creates combo contract and attaches metrics."""
+    if leg4 is not None:
+        from trade.combo_factory import create_combo_contract_4leg
+
+        combo = create_combo_contract_4leg(
+            symbol=bot.SYMBOL,
+            expiry=expiry,
+            leg1=leg1, leg2=leg2, leg3=leg3, leg4=leg4,
+            trading_class=trading_class,
+            leg1_put_call=bot.LEG1_PUT_CALL,
+            leg2_put_call=bot.LEG2_PUT_CALL,
+            leg3_put_call=bot.LEG3_PUT_CALL,
+            leg4_put_call=bot.LEG4_PUT_CALL,
+            leg1_action=bot.LEG1_ACTION,
+            leg2_action=bot.LEG2_ACTION,
+            leg3_action=bot.LEG3_ACTION,
+            leg4_action=bot.LEG4_ACTION,
+            leg1_qty=bot.LEG1_QTY,
+            leg2_qty=bot.LEG2_QTY,
+            leg3_qty=bot.LEG3_QTY,
+            leg4_qty=bot.LEG4_QTY,
+            min_sweep_price=bot.MIN_SWEEP_PRICE,
+            max_sweep_price=bot.MAX_SWEEP_PRICE,
+            get_option_conid_callable=bot._get_option_conid,
+            logger=bot.logger,
+        )
+
+        combo.metrics = metrics
+        return combo
+
     if leg3 is not None:
         from trade.combo_factory import create_combo_contract_3leg
 
@@ -472,11 +666,18 @@ def build_combo(bot, expiry: str, trading_class: str, leg1: float, leg2: float, 
     return combo
 
 
-def log_and_execute(bot, combo, expiry_label: str, leg1: float, leg2: float, leg3: Optional[float], metrics: TradeMetrics):
+def log_and_execute(bot, combo, expiry_label: str, leg1: float, leg2: float, leg3: Optional[float], leg4: Optional[float], metrics: TradeMetrics):
     qty = bot.get_effective_quantity()
     label = getattr(bot.trade_type, "display_name", None) or bot.TRADE_TYPE
 
-    if leg3 is not None:
+    if leg4 is not None:
+        bot.logger.debug("=" * 80)
+        bot.logger.info(
+            f"Executing BUY {qty} {bot.SYMBOL} {expiry_label} "
+            f"IC {int(leg2)}/{int(leg1)}P  {int(leg3)}/{int(leg4)}C {label}"
+        )
+        bot.logger.debug("=" * 80)
+    elif leg3 is not None:
         bot.logger.debug("=" * 80)
         bot.logger.info(
             f"Executing BUY {qty} {bot.SYMBOL} {expiry_label} "

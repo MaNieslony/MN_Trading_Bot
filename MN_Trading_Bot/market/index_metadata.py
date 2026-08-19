@@ -45,6 +45,6 @@ INDEX_METADATA: Dict[str, IndexMetadata] = {
     # Russell 2000 Index
     "RUT": IndexMetadata(
         symbol="RUT",
-        primary_exchange="CBOE",
+        primary_exchange="RUSSELL",
     ),
 }

@@ -19,6 +19,7 @@ def check_entry_conditions(
     - INTRADAY_MOVE
     - RSI
     - VIX
+    - WEEKDAY_FILTER
     """
 
     if not check_conditions:
@@ -31,9 +32,6 @@ def check_entry_conditions(
 
     logger.debug("Checking entry conditions...")
 
-    # ------------------------------------------------------------
-    # Build ordered condition list (ORDER optional, default = 100)
-    # ------------------------------------------------------------
     ordered_conditions = sorted(
         entry_conditions.items(),
         key=lambda kv: kv[1].get("ORDER", 100)
@@ -44,9 +42,6 @@ def check_entry_conditions(
         f"Active entry conditions (in order): {', '.join(active_names)}"
     )
 
-    # ------------------------------------------------------------
-    # Evaluate conditions in ORDER
-    # ------------------------------------------------------------
     for name, cfg in ordered_conditions:
 
         # ── ABOVE SMA ───────────────────────────────────────────
@@ -155,7 +150,27 @@ def check_entry_conditions(
                     f"[{min_vix}, {max_vix}] – entry blocked"
                 )
                 return False
-        
+
+        # ── WEEKDAY FILTER (Tranchen-Rhythmus, z.B. Mo/Do) ──────
+        elif name == "WEEKDAY_FILTER":
+            from datetime import datetime as _dt
+
+            allowed_days = [d.upper() for d in cfg.get("DAYS", [])]
+            today_name = _dt.now().strftime("%A").upper()
+
+            ok = today_name in allowed_days
+
+            logger.info(
+                f"Check Trade Condition (Weekday): "
+                f"{today_name} in {allowed_days}  Result: {ok}"
+            )
+
+            if not ok:
+                logger.warning(
+                    f"Weekday {today_name} not in allowed {allowed_days} – entry blocked"
+                )
+                return False
+
         # ── Unknown condition ──────────────────────────────────
         else:
             logger.warning(f"Unknown entry condition '{name}' – skipping")

@@ -35,7 +35,7 @@ from broker.ib_errors import build_error_callback
 from market.market_flow import wait_for_ticker_data
 from market.market_data import ensure_live_data_if_market_open
 from market.contracts import get_index_contract
-from market.adapters import init_market_caches,preload_option_chain_adapter,preload_deltas_adapter,build_strikes_for_delta_adapter,get_current_price_adapter,get_open_price_adapter,get_option_conid_adapter,get_option_deltas_adapter,get_option_chain_adapter,get_rsi_adapter,get_sma_adapter,get_vix_adapter
+from market.adapters import init_market_caches,preload_option_chain_adapter,preload_deltas_adapter,build_strikes_for_delta_adapter,get_current_price_adapter,get_open_price_adapter,get_option_conid_adapter,get_option_deltas_adapter,get_option_chain_adapter,get_rsi_adapter,get_sma_adapter,get_vix_adapter,get_iv_rank_adapter
 from conditions.entry_conditions import check_entry_conditions
 from runtime.sleep import interruptible_sleep
 from runtime.validation import validate_startup
@@ -46,6 +46,7 @@ from runtime.context.trading_day_context import should_trade_today_now
 from runtime.context.market_wait_context import wait_for_market_open_now
 from tradetype.bull_put import BullPutTradeType
 from tradetype.pbw import PutBrokenWingTradeType
+from tradetype.rut_iron_condor import RutIronCondorTradeType
 from trade.trading_cycle import run_trading_cycle
 from trade.execution import execute_credit_sweep
 from trade.combo_factory import create_combo_contract
@@ -253,6 +254,9 @@ class Bot:
     def get_vix(self) -> Optional[float]:
         return get_vix_adapter(self)
 
+    def get_iv_rank(self) -> Optional[float]:
+        return get_iv_rank_adapter(self)
+
     def is_market_open(self) -> bool:
         return is_market_open_now(market_open_time=self.MARKET_OPEN_TIME,market_close_time=self.MARKET_CLOSE_TIME,check_market_open=self.CHECK_MARKET_OPEN,logger=self.logger)
 
@@ -291,6 +295,9 @@ class Bot:
                 leg3_target_type=self.LEG3_TARGET_TYPE,
                 logger=self.logger,
             )
+
+        if tt in ("IRON_CONDOR", "RUT_IRON_CONDOR"):
+            return RutIronCondorTradeType(logger=self.logger)
 
         raise ValueError(f"❌ Unknown TRADE_TYPE '{trade_type}' in template/schedule '{self.STRATEGY_NAME}'")
 
@@ -383,6 +390,7 @@ class Bot:
             leg1_qty=self.LEG1_QTY,
             leg2_qty=self.LEG2_QTY,
             leg3_qty=self.LEG3_QTY,
+            leg4_qty=self.LEG4_QTY,
             commission_per_contract=self.COMMISSION_PER_CONTRACT,
             is_paper_trading=self._is_paper_trading,
             telegram_enabled=self.TELEGRAM_ENABLED,
@@ -402,6 +410,7 @@ class Bot:
             get_rsi_callable=self.get_rsi,
             get_sma_callable=self.get_sma,
             get_vix_callable=self.get_vix,
+            get_iv_rank_callable=self.get_iv_rank,
             underlying_price=self.underlying_price,
             open_price=self.open_price,
             logger=self.logger,

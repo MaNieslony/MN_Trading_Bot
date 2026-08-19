@@ -145,7 +145,7 @@ def load_merged_schedules() -> list[dict]:
         if not template:
             print(
                 f"⚠️ Unknown TRADETEMPLATE '{template_name}' "
-                f"in schedule '{sched.get('SCHEDULE_NAME')}'"
+                f"in schedule '{sched.get('NAME')}'"
             )
             continue
 
@@ -156,7 +156,7 @@ def load_merged_schedules() -> list[dict]:
         cfg.update(sched)
 
         # 3️⃣ Kompatibilitäts-Mapping (wichtig!)
-        cfg["NAME"] = sched.get("SCHEDULE_NAME", template_name)
+        cfg["NAME"] = sched.get("NAME", template_name)
 
         merged.append(cfg)
 

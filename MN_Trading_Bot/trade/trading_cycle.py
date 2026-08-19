@@ -22,9 +22,6 @@ def run_trading_cycle(bot):
     logger.info("🎯 Starting trading cycle")
     logger.debug("=" * 80)
 
-    # ------------------------------------------------------------
-    # Already traded?
-    # ------------------------------------------------------------
     if not bot.should_trade_today():
         logger.info("✅ Already traded today – stopping bot")
         bot.running = False
@@ -33,15 +30,8 @@ def run_trading_cycle(bot):
     bot.ensure_live_data_if_market_open()
     expiry = select_expiry(bot)
 
-    # ------------------------------------------------------------
-    # PRELOAD (vor Execution-Time-Wait, damit Delta-Fetch nicht
-    # die eigentliche Ausführung verzögert)
-    # ------------------------------------------------------------
     preload_market_data(bot, expiry)
 
-    # ------------------------------------------------------------
-    # Timing checks BEFORE market data
-    # ------------------------------------------------------------
     if not bot.wait_for_EXECUTION_TIME():
         logger.info("Trading skipped due to late start")
         return
@@ -50,16 +40,10 @@ def run_trading_cycle(bot):
         logger.error("Market closed - aborting")
         return
 
-    # ------------------------------------------------------------
-    # Open Price
-    # ------------------------------------------------------------
     if bot.get_open_price() is None:
         logger.error("Failed to get open price")
         return
 
-    # ------------------------------------------------------------
-    # ENTRY PRICE (zweiter und letzter Fetch)
-    # ------------------------------------------------------------
     entry_price = bot.get_current_price()
 
     if entry_price is None:
@@ -68,14 +52,8 @@ def run_trading_cycle(bot):
 
     bot.underlying_price = entry_price
 
-    # ------------------------------------------------------------
-    # Entry Conditions vorbereiten
-    # ------------------------------------------------------------
     entry_conditions = bot.trade_cfg.get("ENTRY_CONDITIONS", {})
 
-    # ------------------------------------------------------------
-    # VIX synchron zum ENTRY
-    # ------------------------------------------------------------
     vix_value = None
 
     if "VIX" in entry_conditions:
@@ -85,9 +63,6 @@ def run_trading_cycle(bot):
             logger.warning("VIX unavailable – skipping trade")
             return
 
-    # ------------------------------------------------------------
-    # Entry Conditions
-    # ------------------------------------------------------------
     if not check_entry_conditions(
         symbol=bot.SYMBOL,
         check_conditions=bot.CHECK_CONDITIONS,
@@ -104,9 +79,6 @@ def run_trading_cycle(bot):
         )
         return
 
-    # ------------------------------------------------------------
-    # Trading logic
-    # ------------------------------------------------------------
     expiry_label = datetime.strptime(expiry, "%Y%m%d").strftime("%b%d'%y")
 
     trading_class, strikes = get_chain_for_expiry(bot, expiry)
@@ -159,22 +131,22 @@ def run_trading_cycle(bot):
         if not legs:
             continue
 
-        leg1, leg2, leg3, metrics = legs
+        leg1, leg2, leg3, leg4, metrics = legs
 
         if not price_and_set_last(
-            bot, expiry, trading_class, leg1, leg2, leg3, metrics
+            bot, expiry, trading_class, leg1, leg2, leg3, leg4, metrics
         ):
             continue
 
         combo = build_combo(
-            bot, expiry, trading_class, leg1, leg2, leg3, metrics
+            bot, expiry, trading_class, leg1, leg2, leg3, leg4, metrics
         )
 
         trade = log_and_execute(
             bot,
             combo,
             expiry_label,
-            leg1, leg2, leg3,
+            leg1, leg2, leg3, leg4,
             metrics,
         )
 

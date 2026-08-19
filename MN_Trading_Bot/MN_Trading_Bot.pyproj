@@ -38,6 +38,8 @@
     <Compile Include="market\market_flow.py" />
     <Compile Include="market\ndx_steering.py" />
     <Compile Include="market\option_chain.py" />
+    <Compile Include="market\rut_ic_steering.py" />
+    <Compile Include="tradetype\rut_iron_condor.py" />
     <Compile Include="trade\telegram.py" />
     <Compile Include="trade\trade_logger.py" />
     <Compile Include="runtime\context\market_context.py" />

@@ -2,6 +2,6 @@
   "IB_HOST": "127.0.0.1",
   "IB_PORT_LIVE": 7496,
   "IB_PORT_PAPER": 7497,
-  "USE_PAPER_TRADING": false,
+  "USE_PAPER_TRADING": true,
   "CLIENT_ID": 1
 }
