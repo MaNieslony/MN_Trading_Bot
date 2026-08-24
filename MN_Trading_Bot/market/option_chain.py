@@ -112,6 +112,31 @@ def get_option_chain(
                 logger.error("No SMART option chain found for RUT")
                 return None, []
 
+        # --- RUT: RUTW, fallback RUT, fallback erste SMART-Chain   ---
+        elif symbol == "RUT":
+            for preferred_class in ("RUTW", "RUT"):
+                for chain in chains:
+                    if chain.exchange == "SMART" and chain.tradingClass == preferred_class:
+                        matching_chain = chain
+                        logger.debug(f"Selected {preferred_class} option chain for RUT")
+                        break
+                if matching_chain:
+                    break
+
+            if not matching_chain:
+                for chain in chains:
+                    if chain.exchange == "SMART":
+                        matching_chain = chain
+                        logger.warning(
+                            f"No RUTW/RUT SMART chain found – falling back to "
+                            f"tradingClass={chain.tradingClass} (bitte verifizieren!)"
+                        )
+                        break
+
+            if not matching_chain:
+                logger.error("No SMART option chain found for RUT")
+                return None, []
+
         else:
             logger.error(f"Unsupported symbol for option chain: {symbol}")
             return None, []
