@@ -126,12 +126,10 @@ def select_rut_iron_condor(
     underlying_price: float,
     expiry: str,
     trading_class: str,
-    iv_rank: float,  # ← Jetzt aus Config
-    iv_rank_matrix: List[dict],
     delta_limit: float,
     strike_step: float,
-    put_spread_width: float,  # ← Fest (z.B. 100)
-    max_call_spread_width: float,  # ← Dynamisch bis hier
+    min_spread_width: float,
+    max_spread_width: float,
     put_delta_window: float,
     call_delta_window: float,
     get_option_conid,
@@ -141,27 +139,16 @@ def select_rut_iron_condor(
 ) -> Optional[dict]:
     """
     Delta-symmetrischer RUT Iron Condor:
-    - GET DTE/DELTA_LIMIT from iv_rank + matrix
-    - Short Put/Call: erste Strike außerhalb ATM, deren |Delta| < delta_limit
-    - Long Put: Fest 100 Punkte tiefer
-    - Long Call: Dynamisch durch _walk_long_strike bis max_call_spread_width
+    - Short Put / Short Call: erste Strike außerhalb ATM, deren |Delta| < delta_limit
+    - Long Put / Long Call: Briefkurs-Regel-Walk zwischen min_spread_width und max_spread_width
+    Holt Put- und Call-Deltas selbst (unabhängig vom generischen Delta-Cache der anderen Strategien).
     """
     from market.greeks import get_option_deltas
 
     strikes_set = set(strikes)
-    
-    # Resolve DTE and Delta from IV-Rank matrix
-    result = resolve_dte_and_delta_from_iv_rank(iv_rank=iv_rank, matrix=iv_rank_matrix)
-    if result is None:
-        logger.warning(f"Cannot resolve DTE/Delta from IV-Rank {iv_rank}")
-        return None
-    
-    max_dte, delta_limit = result
-    logger.info(f"IV-Rank {iv_rank}% -> DTE={max_dte}, Delta-Limit={delta_limit}%")
 
     conid_cb = lambda e, s, r, tc=None: get_option_conid(e, s, r, tc or trading_class)
 
-    # GET DELTAS
     put_window_strikes = [s for s in strikes if underlying_price - put_delta_window <= s <= underlying_price]
     call_window_strikes = [s for s in strikes if underlying_price <= s <= underlying_price + call_delta_window]
 
@@ -180,110 +167,104 @@ def select_rut_iron_condor(
         logger.warning("RUT-IC: keine Put- oder Call-Deltas verfügbar")
         return None
 
-    # SHORT PUT
+    # ------------------------------------------------------------
+    # SHORT PUT (unterhalb Spot)
+    # ------------------------------------------------------------
     put_candidates = sorted(
         ((s, abs(d)) for s, d in put_deltas.items() if s < underlying_price),
-        key=lambda x: underlying_price - x[0],
+        key=lambda x: underlying_price - x[0],  # nächstes an ATM zuerst
     )
-    short_put = _pick_short_strike_below_delta_limit(
-        candidates=put_candidates, 
-        delta_limit=delta_limit
-    )
+    short_put = _pick_short_strike_below_delta_limit(candidates=put_candidates, delta_limit=delta_limit)
 
-    if not short_put:
-        logger.warning("RUT-IC: Keine PUT-Short-Strike gefunden")
-        return None
-
-    short_put_strike = short_put[0]
-    logger.info(f"RUT-IC: Short PUT @ {short_put_strike} (delta={short_put[1]:.2f}%)")
-
-    # LONG PUT: Fest 100 Punkte tiefer
-    long_put_strike = short_put_strike - put_spread_width
-    if long_put_strike not in strikes_set:
-        logger.warning(f"RUT-IC: Long PUT {long_put_strike} nicht in Chain")
-        return None
-
-    logger.info(f"RUT-IC: Long PUT @ {long_put_strike} (width={put_spread_width})")
-
-    # SHORT CALL
+    # ------------------------------------------------------------
+    # SHORT CALL (oberhalb Spot)
+    # ------------------------------------------------------------
     call_candidates = sorted(
         ((s, abs(d)) for s, d in call_deltas.items() if s > underlying_price),
         key=lambda x: x[0] - underlying_price,
     )
-    short_call = _pick_short_strike_below_delta_limit(
-        candidates=call_candidates,
-        delta_limit=delta_limit
-    )
+    short_call = _pick_short_strike_below_delta_limit(candidates=call_candidates, delta_limit=delta_limit)
 
-    if not short_call:
-        logger.warning("RUT-IC: Keine CALL-Short-Strike gefunden")
+    if not short_put or not short_call:
+        logger.warning(
+            f"RUT-IC: kein gültiger Short-Strike gefunden "
+            f"(put={short_put}, call={short_call}, delta_limit={delta_limit:.4f})"
+        )
         return None
 
-    short_call_strike = short_call[0]
-    logger.info(f"RUT-IC: Short CALL @ {short_call_strike} (delta={short_call[1]:.2f}%)")
+    short_put_strike, short_put_delta = short_put
+    short_call_strike, short_call_delta = short_call
 
-    # LONG CALL: Dynamisch durch _walk_long_strike
-    long_call_result = _walk_long_strike(
-        short_strike=short_call_strike,
-        direction=+1,  # CALL = nach oben
-        strike_step=strike_step,
-        min_width=strike_step,  # Mind. 1 Step
-        max_width=max_call_spread_width,
-        strikes_available=strikes_set,
-        get_ask_callable=lambda s: _get_ask_for_strike(ib, expiry, s, "C", get_option_conid),
-        logger=logger,
-        side_label="RUT-IC CALL",
+    logger.info(
+        f"RUT-IC Short Strikes: PUT {int(short_put_strike)} (Δ={short_put_delta:.4f}) / "
+        f"CALL {int(short_call_strike)} (Δ={short_call_delta:.4f}) | Limit={delta_limit:.4f}"
     )
 
-    if not long_call_result:
-        logger.warning("RUT-IC: Keine CALL-Long-Strike gefunden")
+    # ------------------------------------------------------------
+    # Briefkurs-Regel: Ask-Preise der möglichen Long-Strikes batched holen
+    # ------------------------------------------------------------
+    def build_ask_lookup(put_call: str, short_strike: float, direction: int) -> Dict[float, float]:
+        n_min = max(1, round(min_spread_width / strike_step))
+        n_max = round(max_spread_width / strike_step)
+
+        candidate_strikes = [
+            short_strike + direction * n * strike_step
+            for n in range(n_min, n_max + 1)
+        ]
+        candidate_strikes = [s for s in candidate_strikes if s in strikes_set]
+
+        contracts = []
+        for s in candidate_strikes:
+            c = get_option_conid(expiry, s, put_call, trading_class)
+            if c:
+                contracts.append((s, c))
+
+        if not contracts:
+            return {}
+
+        tickers = ib.reqTickers(*[c for _, c in contracts])
+        if not wait_for_ticker_data(tickers, timeout=2.0):
+            logger.warning(f"RUT-IC: Ticker-Timeout bei {put_call} Long-Strike Kandidaten")
+
+        asks: Dict[float, float] = {}
+        for (s, _c), t in zip(contracts, tickers):
+            if t.ask is not None and t.ask > 0:
+                asks[s] = float(t.ask)
+        return asks
+
+    put_asks = build_ask_lookup("P", short_put_strike, -1)
+    call_asks = build_ask_lookup("C", short_call_strike, 1)
+
+    long_put = _walk_long_strike(
+        short_strike=short_put_strike, direction=-1, strike_step=strike_step,
+        min_width=min_spread_width, max_width=max_spread_width,
+        strikes_available=strikes_set, get_ask_callable=lambda s: put_asks.get(s),
+        logger=logger, side_label="RUT-IC PUT",
+    )
+    long_call = _walk_long_strike(
+        short_strike=short_call_strike, direction=1, strike_step=strike_step,
+        min_width=min_spread_width, max_width=max_spread_width,
+        strikes_available=strikes_set, get_ask_callable=lambda s: call_asks.get(s),
+        logger=logger, side_label="RUT-IC CALL",
+    )
+
+    if not long_put or not long_call:
+        logger.warning("RUT-IC: Long-Strikes (Briefkurs-Regel) konnten nicht bestimmt werden")
         return None
 
-    long_call_strike = long_call_result["strike"]
-    call_spread_width = long_call_result["width"]
+    logger.info(
+        f"RUT-IC Long Strikes (Briefkurs-Regel): "
+        f"PUT {int(long_put['strike'])} (Breite={long_put['width']:.0f}) / "
+        f"CALL {int(long_call['strike'])} (Breite={long_call['width']:.0f})"
+    )
 
-    logger.info(f"RUT-IC: Long CALL @ {long_call_strike} (width={call_spread_width})")
-
-    # Return Legs
     return {
-        "legs": [
-            {
-                "strike": short_put_strike,
-                "put_call": "P",
-                "action": "SELL",
-                "delta": short_put[1],
-            },
-            {
-                "strike": long_put_strike,
-                "put_call": "P",
-                "action": "BUY",
-                "delta": abs(put_deltas.get(long_put_strike, 0.0)),
-            },
-            {
-                "strike": short_call_strike,
-                "put_call": "C",
-                "action": "SELL",
-                "delta": short_call[1],
-            },
-            {
-                "strike": long_call_strike,
-                "put_call": "C",
-                "action": "BUY",
-                "delta": abs(call_deltas.get(long_call_strike, 0.0)),
-            },
-        ],
-        "put_width": put_spread_width,
-        "call_width": call_spread_width,
-        "dte": max_dte,
+        "short_put_strike": short_put_strike,
+        "long_put_strike": long_put["strike"],
+        "short_call_strike": short_call_strike,
+        "long_call_strike": long_call["strike"],
+        "short_put_delta": short_put_delta,
+        "short_call_delta": short_call_delta,
+        "put_width": long_put["width"],
+        "call_width": long_call["width"],
     }
-
-
-def _get_ask_for_strike(ib, expiry, strike, put_call, get_option_conid_callable):
-    """Helper: holt Ask-Preis für einen Strike"""
-    try:
-        conid = get_option_conid_callable(expiry, strike, put_call)
-        # Mkt Data abrufen → Ask
-        # (Implementation je nach ib_insync Pattern)
-        return None  # Placeholder
-    except Exception:
-        return None

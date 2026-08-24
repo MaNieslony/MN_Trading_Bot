@@ -153,10 +153,6 @@
     "SYMBOL": "RUT",
     "COMMISSION_PER_CONTRACT": 1.6,
 
-    "__SECTION__IV_RANK_OVERRIDE": "=========================",
-    "IV_RANK_VALUE": 23,
-
-
     "__SECTION__LEG_DEFINITION": "========================= Short Put / Long Put / Short Call / Long Call",
     "LEG1_ACTION": "SELL",
     "LEG1_PUT_CALL": "P",
@@ -194,6 +190,7 @@
     "MAX_RESCAN_ATTEMPTS": 3,
 
     "__SECTION__IV_RANK_STEERING": "========================= IV-Rank -> DTE / Delta Matrix",
+    "IV_RANK_LOOKBACK_DAYS": 365,
     "IV_RANK_MATRIX": [
         {
             "MIN_IV_RANK": 0,
@@ -220,11 +217,9 @@
 
     "__SECTION__SPREAD_WIDTH": "Punkte pro Seite - manuell an Kontogröße anpassen (< 50k: 20/20, 50-150k: 30-50, > 150k: 50-100)",
     "STRIKE_STEP": 5,
-    "MIN_SPREAD_WIDTH": 50,
-    "MAX_SPREAD_WIDTH": 100,
-    "PUT_SPREAD_WIDTH": 100,
-    "CALL_SPREAD_WIDTH": 80,
-    "CALL_DELTA_WINDOW": 300,
-    "PUT_DELTA_WINDOW": 300
+    "MIN_SPREAD_WIDTH": 20,
+    "MAX_SPREAD_WIDTH": 20,
+    "PUT_DELTA_WINDOW": 300,
+    "CALL_DELTA_WINDOW": 300
 }
 ]
