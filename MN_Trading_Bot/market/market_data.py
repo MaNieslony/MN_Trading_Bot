@@ -280,8 +280,6 @@ def get_vix_price(
         logger.error(f"Error getting VIX price: {e}")
         return None
 
-from typing import Optional
-
 def get_iv_rank(
     *,
     ib,
@@ -291,37 +289,37 @@ def get_iv_rank(
     logger,
 ) -> Optional[float]:
     """
-    IV-Rank via IB Historical Implied-Volatility Bars.
-    IV-Rank = (current_iv - min_iv) / (max_iv - min_iv) * 100
+    Berechnet den IV Rank über den historischen IV-Bereich (lookback_days).
+    IV Rank = (aktuelle IV - Min IV) / (Max IV - Min IV) * 100
+
+    Hinweis: Wird bei gesetztem bot.IV_RANK_OVERRIDE nicht aufgerufen
+    (siehe trade/cycle_steps.select_expiry_iron_condor).
     """
     try:
         contract = get_index_contract_callable()
         ib.qualifyContracts(contract)
 
-        duration_str = '1 Y' if lookback_days >= 365 else f'{int(lookback_days)} D'
-
         bars = ib.reqHistoricalData(
             contract,
             endDateTime='',
-            durationStr=duration_str,
+            durationStr=f'{int(lookback_days)} D',
             barSizeSetting='1 day',
             whatToShow='OPTION_IMPLIED_VOLATILITY',
             useRTH=True,
             formatDate=1,
         )
 
-        if not bars or len(bars) < 20:
+        if not bars or len(bars) < 2:
             logger.warning(
-                f"Insufficient IV history for {symbol}: "
-                f"got {len(bars) if bars else 0} bars"
+                f"Insufficient IV history for IV Rank "
+                f"(got {len(bars) if bars else 0} bars, lookback={lookback_days}d)"
             )
             return None
 
-        # In Prozent, damit Logs direkt mit dem TWS Volatility Lab vergleichbar sind
-        iv_values = [bar.close * 100 for bar in bars if bar.close is not None and bar.close > 0]
+        iv_values = [bar.close for bar in bars if bar.close is not None]
 
-        if len(iv_values) < 20:
-            logger.warning(f"Insufficient valid IV values for {symbol}")
+        if len(iv_values) < 2:
+            logger.warning("Insufficient valid IV values for IV Rank")
             return None
 
         current_iv = iv_values[-1]
@@ -329,19 +327,19 @@ def get_iv_rank(
         iv_max = max(iv_values)
 
         if iv_max == iv_min:
-            logger.warning(f"{symbol}: IV range is zero – cannot compute IV-Rank")
+            logger.warning("IV range is zero – cannot compute IV Rank")
             return None
 
         iv_rank = (current_iv - iv_min) / (iv_max - iv_min) * 100.0
-        iv_rank = max(0.0, min(100.0, iv_rank))
 
         logger.info(
-            f"{symbol} IV-Rank({lookback_days}d): {iv_rank:.1f} "
-            f"(current={current_iv:.2f}%, min={iv_min:.2f}%, max={iv_max:.2f}%, n={len(iv_values)})"
+            f"{symbol} IV Rank: {iv_rank:.1f}% "
+            f"(current IV={current_iv:.4f}, range={iv_min:.4f}-{iv_max:.4f}, "
+            f"lookback={lookback_days}d)"
         )
 
         return round(iv_rank, 1)
 
     except Exception as e:
-        logger.error(f"Error calculating IV-Rank for {symbol}: {e}", exc_info=True)
+        logger.error(f"Error calculating IV Rank: {e}", exc_info=True)
         return None

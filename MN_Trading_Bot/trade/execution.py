@@ -90,8 +90,6 @@ def place_profit_target_order(
         logger.error(f"Failed to place profit target order: {e}", exc_info=True)
         return None
 
-
-
 def execute_credit_sweep(
     *,
     ib,
@@ -115,12 +113,23 @@ def execute_credit_sweep(
     profit_target_enabled: bool,
     profit_target_pct: float,
     profit_target_eth: bool,
-
+    start_sweep_quantile: float = 0.25,
 ):
     """
     IMPORTANT:
     - Start price is quantized UP to tick (market-friendly for credits).
     - Sweep progression quantizes UP to tick (so we always progress for negative prices).
+
+    Start-Sweep-Position:
+    - Start-Preis wird innerhalb der Geldkurs-/Briefkurs-Spanne (theoretischer
+      Bestpreis <-> natural credit) per start_sweep_quantile gewählt:
+        0.0 -> Start am Geldkurs (Bestpreis, meiste Credit)
+        0.5 -> Start am Mid-Preis (altes Verhalten)
+        1.0 -> Start am Briefkurs (natural credit, wenigste Credit)
+      Default 0.25 = oberes Viertel der Spanne (näher am Geldkurs).
+      Geldkurs wird rechnerisch aus mid/natural abgeleitet:
+        best = 2*mid - natural
+      Keine zusätzlichen IB-Anfragen nötig.
     """
 
     # --------------------------------------------------------------------
@@ -144,15 +153,27 @@ def execute_credit_sweep(
         return None
 
     # --------------------------------------------------------------------
-    # Start at mid (found_credit) for all strategies.
-    # Quantize UP to tick to avoid float artifacts.
-    # Clamp to max_sweep_price (ceiling: must not be less negative than allowed).
+    # Start price: oberes Viertel der Geld-/Briefkurs-Spanne (statt reinem Mid).
+    # Geldkurs (best-case) = 2*mid - natural (rechnerisch, ohne zusätzliche IB-Calls).
+    # Quantize UP to tick. Clamp to max_sweep_price (ceiling).
     # --------------------------------------------------------------------
-    start_credit = _quantize_up(found_credit, sweep_step)
+    if natural_credit and natural_credit < 0 and found_credit <= natural_credit:
+        best_credit = (2.0 * found_credit) - natural_credit
+        q = min(max(float(start_sweep_quantile), 0.0), 1.0)
+        raw_start = ((1.0 - q) * best_credit) + (q * natural_credit)
+
+        logger.debug(f"Geldkurs (best-case, rechnerisch): ${best_credit:.2f}")
+        logger.debug(f"Briefkurs (natural credit): ${natural_credit:.2f}")
+        logger.debug(f"Start-Sweep-Quantile: {q:.2f} (0=Geldkurs, 1=Briefkurs)")
+    else:
+        raw_start = found_credit
+        logger.debug("Kein gültiger natural_credit für Quantile-Start – starte am Mid-Preis")
+
+    start_credit = _quantize_up(raw_start, sweep_step)
     start_credit = min(start_credit, max_sweep_price)
 
     logger.debug(f"Quantity: {quantity} contracts")
-    logger.debug(f"Reference credit: ${found_credit:.2f}")
+    logger.debug(f"Reference credit (mid): ${found_credit:.2f}")
     logger.debug(f"Start sweep @: ${start_credit:.2f}")
     logger.debug(f"Max sweep price: ${max_sweep_price:.2f}")
     logger.debug(f"Step: +${sweep_step:.2f} per attempt")
@@ -200,6 +221,7 @@ def execute_credit_sweep(
                 totalQuantity=quantity,
                 lmtPrice=current_credit,
                 orderRef=order_ref,
+                tif="DAY",
             )
 
             try:
@@ -289,6 +311,7 @@ def execute_credit_sweep(
                         totalQuantity=quantity,
                         lmtPrice=current_credit,
                         orderRef=order_ref,
+                        tif="DAY",
                     )
                     trade = ib.placeOrder(combo, order)
                     logger.debug(f"Replacement order placed - new Order ID: {trade.order.orderId}")

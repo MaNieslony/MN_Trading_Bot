@@ -63,6 +63,16 @@ class ScheduleContext:
         bot.SWEEP_STEP = cfg["SWEEP_STEP"]
 
         # ------------------------------------------------------------
+        # Start-Sweep-Position innerhalb der Geld-/Briefkurs-Spanne.
+        # 0.0 = Start am theoretischen Bestpreis (Geldkurs, meiste Credit)
+        # 0.5 = Start am Mid-Preis (bisheriges Verhalten)
+        # 1.0 = Start am Briefkurs (natural credit, wenigste Credit)
+        # Default 0.5 = mittleres Viertel (näher am Geldkurs).
+        # Optional pro Template über "START_SWEEP_QUANTILE" überschreibbar.
+        # ------------------------------------------------------------
+        bot.START_SWEEP_QUANTILE = float(cfg.get("START_SWEEP_QUANTILE", 0.5))
+
+        # ------------------------------------------------------------
         # Optional NDX scan parameters (present only in some templates)
         # ------------------------------------------------------------
         bot.STRIKE_UPPER_OFFSET = cfg.get("STRIKE_UPPER_OFFSET")
@@ -167,6 +177,10 @@ class ScheduleContext:
         # ------------------------------------------------------------
         bot.IV_RANK_MATRIX = cfg.get("IV_RANK_MATRIX")
         bot.IV_RANK_LOOKBACK_DAYS = cfg.get("IV_RANK_LOOKBACK_DAYS", 365)
+        # NEU: manueller IV-Rank-Override (z.B. 21). Wenn gesetzt, wird die
+        # Live-Berechnung via bot.get_iv_rank() komplett übersprungen.
+        # Default None = bestehendes Verhalten (Live-Berechnung).
+        bot.IV_RANK_OVERRIDE = cfg.get("IV_RANK_OVERRIDE")
         bot.LATE_ENTRY_CUTOFF_ET = cfg.get("LATE_ENTRY_CUTOFF_ET", "12:00:00")
         bot.MIN_SPREAD_WIDTH = cfg.get("MIN_SPREAD_WIDTH")
         bot.MAX_SPREAD_WIDTH = cfg.get("MAX_SPREAD_WIDTH")
