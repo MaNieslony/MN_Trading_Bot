@@ -167,6 +167,10 @@ class ScheduleContext:
         # ------------------------------------------------------------
         bot.IV_RANK_MATRIX = cfg.get("IV_RANK_MATRIX")
         bot.IV_RANK_LOOKBACK_DAYS = cfg.get("IV_RANK_LOOKBACK_DAYS", 365)
+        # NEU: manueller IV-Rank-Override (z.B. 21). Wenn gesetzt, wird die
+        # Live-Berechnung via bot.get_iv_rank() komplett übersprungen.
+        # Default None = bestehendes Verhalten (Live-Berechnung).
+        bot.IV_RANK_OVERRIDE = cfg.get("IV_RANK_OVERRIDE")
         bot.LATE_ENTRY_CUTOFF_ET = cfg.get("LATE_ENTRY_CUTOFF_ET", "12:00:00")
         bot.MIN_SPREAD_WIDTH = cfg.get("MIN_SPREAD_WIDTH")
         bot.MAX_SPREAD_WIDTH = cfg.get("MAX_SPREAD_WIDTH")

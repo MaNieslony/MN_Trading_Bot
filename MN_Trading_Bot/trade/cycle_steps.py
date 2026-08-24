@@ -51,17 +51,39 @@ def select_expiry_iron_condor(bot) -> str:
     """
     IV-Rank -> (max_dte, delta_limit) Matrix auflösen, Late-Entry DTE+1 anwenden,
     Ergebnis auf bot._ic_* zwischenspeichern (für select_legs), passende Expiry suchen.
+
+    Unterstützt manuellen IV-Rank-Override via bot.IV_RANK_OVERRIDE (Template-Feld
+    "IV_RANK_OVERRIDE"). Wenn gesetzt, wird bot.get_iv_rank() NICHT aufgerufen –
+    stattdessen wird der Override-Wert direkt in die Matrix eingespeist.
     """
     import pytz
     from datetime import time as dt_time
 
-    iv_rank = bot.get_iv_rank()
     matrix = bot.IV_RANK_MATRIX
+    iv_override = getattr(bot, "IV_RANK_OVERRIDE", None)
+
+    if iv_override is not None:
+        try:
+            iv_rank = int(iv_override)
+        except Exception:
+            bot.logger.error(
+                f"RUT-IC: IV_RANK_OVERRIDE ungültig ({iv_override!r}) – "
+                f"falle zurück auf Live-Berechnung"
+            )
+            iv_rank = bot.get_iv_rank()
+        else:
+            bot.logger.warning(
+                f"RUT-IC: manueller IV-Rank-Override AKTIV -> {iv_rank} "
+                f"(Live-Berechnung wird übersprungen)"
+            )
+    else:
+        iv_rank = bot.get_iv_rank()
 
     if iv_rank is None:
         bot.logger.error("RUT-IC: IV-Rank nicht verfügbar – nutze konservativsten Matrix-Eintrag")
         fallback = min(matrix, key=lambda r: float(r["MIN_IV_RANK"]))
         target_dte, delta_limit = int(fallback["MAX_DTE"]), float(fallback["DELTA_LIMIT"])
+        iv_rank = float(fallback["MIN_IV_RANK"])
     else:
         resolved = resolve_dte_and_delta_from_iv_rank(iv_rank=iv_rank, matrix=matrix)
         if resolved is None:
@@ -85,10 +107,14 @@ def select_expiry_iron_condor(bot) -> str:
     bot._ic_iv_rank = iv_rank
     bot._ic_target_dte = target_dte
     bot._ic_delta_limit = delta_limit
+    # Fix: select_legs() liest bot.IV_RANK_VALUE für select_rut_iron_condor() –
+    # das fehlte bisher komplett (AttributeError beim scharfen Trade).
+    bot.IV_RANK_VALUE = iv_rank
 
     bot.logger.info(
-        f"RUT-IC Steering: IV-Rank={iv_rank if iv_rank is not None else 'n/a'} -> "
-        f"Ziel-DTE={target_dte}, Delta-Grenze={delta_limit:.4f}"
+        f"RUT-IC Steering: IV-Rank={iv_rank}"
+        f"{' (Override)' if iv_override is not None else ''} -> "
+        f"Ziel-DTE={target_dte}, Delta-Grenze={delta_limit:.2f}"
     )
 
     expiry = get_best_expiry_by_dte(
@@ -102,7 +128,6 @@ def select_expiry_iron_condor(bot) -> str:
     )
 
     return expiry or (datetime.now() + timedelta(days=target_dte)).strftime("%Y%m%d")
-
 
 def preload_market_data(bot, expiry: str) -> None:
     """Preload option chain + deltas into bot caches if underlying price available."""

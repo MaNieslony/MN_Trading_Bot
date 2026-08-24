@@ -200,6 +200,7 @@ def execute_credit_sweep(
                 totalQuantity=quantity,
                 lmtPrice=current_credit,
                 orderRef=order_ref,
+                tif="DAY",
             )
 
             try:
@@ -289,6 +290,7 @@ def execute_credit_sweep(
                         totalQuantity=quantity,
                         lmtPrice=current_credit,
                         orderRef=order_ref,
+                        tif="DAY",
                     )
                     trade = ib.placeOrder(combo, order)
                     logger.debug(f"Replacement order placed - new Order ID: {trade.order.orderId}")

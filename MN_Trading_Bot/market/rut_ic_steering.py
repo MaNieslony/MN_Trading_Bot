@@ -28,7 +28,6 @@ def resolve_dte_and_delta_from_iv_rank(
 
     return int(selected["MAX_DTE"]), float(selected["DELTA_LIMIT"])
 
-
 def is_late_entry(*, now_et, late_entry_cutoff_et) -> bool:
     """True, wenn die aktuelle ET-Zeit die Late-Entry-Grenze erreicht/überschreitet (=> DTE+1)."""
     return now_et.time() >= late_entry_cutoff_et
@@ -56,7 +55,6 @@ def _pick_short_strike_below_delta_limit(
     if not below:
         return None
     return max(below, key=lambda x: x[1])
-
 
 def _walk_long_strike(
     *,
@@ -119,13 +117,14 @@ def _walk_long_strike(
 
     return {"strike": current_strike, "ask": current_ask, "width": current_n * strike_step}
 
-
 def select_rut_iron_condor(
     *,
     strikes: List[float],
     underlying_price: float,
     expiry: str,
     trading_class: str,
+    iv_rank: int,
+    iv_rank_matrix: List[dict],
     delta_limit: float,
     strike_step: float,
     min_spread_width: float,
@@ -142,13 +141,32 @@ def select_rut_iron_condor(
     - Short Put / Short Call: erste Strike außerhalb ATM, deren |Delta| < delta_limit
     - Long Put / Long Call: Briefkurs-Regel-Walk zwischen min_spread_width und max_spread_width
     Holt Put- und Call-Deltas selbst (unabhängig vom generischen Delta-Cache der anderen Strategien).
+
+    WICHTIG: delta_limit kommt bereits normalisiert (0.0x) vom Aufrufer
+    (cycle_steps.select_expiry_iron_condor via bot._ic_delta_limit). Hier NICHT
+    mit dem rohen Matrix-Wert überschreiben – das resolve() unten dient nur noch
+    der DTE-Logbestätigung.
     """
     from market.greeks import get_option_deltas
 
     strikes_set = set(strikes)
 
+    # Nur zur Log-Kontrolle / DTE-Bestätigung – delta_limit bleibt der
+    # bereits normalisierte Wert des Aufrufers.
+    result = resolve_dte_and_delta_from_iv_rank(iv_rank=iv_rank, matrix=iv_rank_matrix)
+    if result is None:
+        logger.warning(f"Cannot resolve DTE/Delta from IV-Rank {iv_rank}")
+        return None
+
+    max_dte, _raw_delta_limit_from_matrix = result
+    logger.info(
+        f"IV-Rank {iv_rank:.0f} -> DTE={max_dte}, "
+        f"Delta-Grenze={delta_limit:.2f}"
+    )
+
     conid_cb = lambda e, s, r, tc=None: get_option_conid(e, s, r, tc or trading_class)
 
+    # GET DELTAS
     put_window_strikes = [s for s in strikes if underlying_price - put_delta_window <= s <= underlying_price]
     call_window_strikes = [s for s in strikes if underlying_price <= s <= underlying_price + call_delta_window]
 
@@ -190,6 +208,9 @@ def select_rut_iron_condor(
             f"RUT-IC: kein gültiger Short-Strike gefunden "
             f"(put={short_put}, call={short_call}, delta_limit={delta_limit:.4f})"
         )
+
+    if not short_call:
+        logger.warning("RUT-IC: Keine CALL-Short-Strike gefunden")
         return None
 
     short_put_strike, short_put_delta = short_put

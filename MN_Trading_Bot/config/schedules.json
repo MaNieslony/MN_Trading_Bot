@@ -75,7 +75,7 @@
         "EXPIRATION_MINUTES": 10,
         "ENTRY_CONDITIONS": {
             "WEEKDAY_FILTER": {
-                "DAYS": [ "MONDAY"],
+                "DAYS": [ "MONDAY", "WEDNESDAY" ],
                 "ORDER": 1
             }
         },
