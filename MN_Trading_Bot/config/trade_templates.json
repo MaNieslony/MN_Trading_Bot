@@ -79,7 +79,7 @@
     "LEG2_DTE": 0,
 
     "__SECTION__EXECUTION": "Execution / Sweep limits",
-    "MIN_SWEEP_PRICE": -0.6,
+    "MIN_SWEEP_PRICE": -0.7,
     "MAX_SWEEP_PRICE": -0.3,
     "MAX_SWEEP_ATTEMPTS": 20,
     "SWEEP_WAIT_SECONDS": 10,
@@ -87,7 +87,7 @@
     "START_SWEEP_QUANTILE": 0.5,
 	
     "__SECTION__RESCAN_CONTROL": "=========================",
-    "MAX_RESCAN_ATTEMPTS": 6,
+    "MAX_RESCAN_ATTEMPTS": 7,
 	
     "__SECTION__DELTA_STEERING": "=========================",
     "DELTA_TARGET_OFFSET": 0.2,
@@ -187,7 +187,7 @@
         "MIN_SWEEP_PRICE": -6.00,
         "MAX_SWEEP_PRICE": -1.00,
         "MAX_SWEEP_ATTEMPTS": 40,
-        "SWEEP_WAIT_SECONDS": 10,
+        "SWEEP_WAIT_SECONDS": 8,
         "SWEEP_STEP": 0.05,
         "START_SWEEP_QUANTILE": 0.25,
 
@@ -195,7 +195,7 @@
         "MAX_RESCAN_ATTEMPTS": 3,
 
         "__SECTION__IV_RANK_STEERING": "========================= IV-Rank -> DTE / Delta Matrix",
-        "IV_RANK_OVERRIDE": 21,
+        "IV_RANK_OVERRIDE": 20,
         "IV_RANK_LOOKBACK_DAYS": 365,
         "IV_RANK_MATRIX": [
             {
