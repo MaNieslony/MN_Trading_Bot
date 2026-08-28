@@ -360,4 +360,5 @@ MigrationBackup/
 .ionide/
 
 # Fody - auto-generated XML schema
-FodyWeavers.xsd
+FodyWeavers.xsd"MN_Trading_Bot/config/telegram_settings.json" 
+/MN_Trading_Bot/config/telegram_settings.json
