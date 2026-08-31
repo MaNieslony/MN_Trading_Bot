@@ -362,3 +362,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd"MN_Trading_Bot/config/telegram_settings.json" 
 /MN_Trading_Bot/config/telegram_settings.json
+/MN_Trading_Bot/reports/mn_trading_trade_report - Paper-Trades.csv
+/MN_Trading_Bot/reports/mn_trading_trade_report - Paper-Trades.csv
+/MN_Trading_Bot/reports/mn_trading_trade_report - Paper-Trades.csv
+/MN_Trading_Bot/reports/mn_trading_trade_report.csv
