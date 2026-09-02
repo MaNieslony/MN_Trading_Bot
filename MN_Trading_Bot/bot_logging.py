@@ -2,7 +2,7 @@
 Logging setup and startup utilities for Bot.
 ═════════════════════════════════════════════════════
 
-Provides three functions used by SPX.py:
+Provides three functions used by bot.py:
 
   - _setup_logging(bot)       Called by Bot._setup_logging() to
                               initialize console + file handlers with
@@ -23,7 +23,6 @@ NOTES:
 
 import sys
 import os
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENABLE ANSI IN WINDOWS POWERSHELL
@@ -126,7 +125,7 @@ def _setup_logging(self):
     _enable_windows_ansi()
 
     # ── log file ──────────────────────────────────────────────────────────────
-    logs_dir = "logs"
+    logs_dir = os.environ.get("MN_BOT_LOG_DIR", "logs")
     if not os.path.exists(logs_dir):
         os.makedirs(logs_dir)
     log_filename = os.path.join(

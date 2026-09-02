@@ -366,3 +366,14 @@ FodyWeavers.xsd"MN_Trading_Bot/config/telegram_settings.json"
 /MN_Trading_Bot/reports/mn_trading_trade_report - Paper-Trades.csv
 /MN_Trading_Bot/reports/mn_trading_trade_report - Paper-Trades.csv
 /MN_Trading_Bot/reports/mn_trading_trade_report.csv
+
+# User-spezifische Configs – leben nur noch in der jeweiligen Instanz, nicht im Code-Repo
+/MN_Trading_Bot/config/broker_settings.json
+/MN_Trading_Bot/config/telegram_settings.json
+/MN_Trading_Bot/config/schedules.json
+/MN_Trading_Bot/config/trade_templates.json
+/MN_Trading_Bot/config/bot_mode_settings.json
+/MN_Trading_Bot/config/conditions_settings.json
+
+/MN_Trading_Bot/reports/
+/MN_Trading_Bot/logs/

@@ -1,9 +1,0 @@
-{
-  "DEBUG_MODE": true,
-  "CHECK_CONDITIONS": true,
-  "CHECK_EXECUTION_TIME": true,
-  "CHECK_MARKET_OPEN": true,
-
-  "TRADE_REPORT_CSV": "reports/mn_trading_trade_report.csv"
-}
-
