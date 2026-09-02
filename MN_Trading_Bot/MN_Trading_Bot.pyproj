@@ -13,6 +13,7 @@
     <Name>MN_Trading_Bot</Name>
     <RootNamespace>MN_Trading_Bot</RootNamespace>
     <IsWindowsApplication>False</IsWindowsApplication>
+    <SuppressEnvironmentCreationPrompt>True</SuppressEnvironmentCreationPrompt>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -78,6 +79,7 @@
     <Content Include="config\schedules.json" />
     <Content Include="config\telegram_settings.json" />
     <Content Include="config\trade_templates.json" />
+    <Content Include="requirements.txt" />
     <Content Include="tradetype\__pycache__\bull_put.cpython-313.pyc" />
     <Content Include="tradetype\__pycache__\__init__.cpython-313.pyc" />
   </ItemGroup>
