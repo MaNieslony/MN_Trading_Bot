@@ -29,7 +29,7 @@ OUTPUT:
   reports/mn_trading_trade_report.csv
 """
 from bot_logging import print_startup_banner, _setup_logging as bot_setup_logging
-from config.loader import load_broker_settings, load_telegram_settings,load_bot_mode_settings,load_merged_schedules
+from config.loader import load_broker_settings, load_telegram_settings,load_bot_mode_settings,load_merged_schedules,resolve_trade_report_csv_path
 from broker.ib_broker import IBBroker
 from broker.ib_errors import build_error_callback
 from market.market_flow import wait_for_ticker_data
@@ -131,6 +131,16 @@ class Bot:
             self.IB_PORT = broker_cfg["IB_PORT_LIVE"]
 
         self._is_paper_trading = (self.IB_PORT == 7497)
+
+        # ------------------------------------------------------------
+        # Paper Trading: separate CSV, damit Paper- und Live-Trades sich
+        # niemals im selben Report vermischen.
+        # ------------------------------------------------------------
+        self.TRADE_REPORT_CSV = resolve_trade_report_csv_path(
+            base_path=self.TRADE_REPORT_CSV,
+            is_paper_trading=self._is_paper_trading,
+        )
+        self.logger.debug(f"Trade report CSV: {self.TRADE_REPORT_CSV}")
 
         # ------------------------------------------------------------
         # Load Telegram settings

@@ -101,19 +101,25 @@ def print_startup_banner():
     Replacement for the raw print() block in __main__.
     Prints a slim one-liner — the full bot banner comes from the logger
     once IB connects and logs PAPER/LIVE TRADING MODE.
+
+    Zeigt den ABSOLUTEN Pfad zur heutigen Log-Datei, aufgeloest gegen das
+    aktuelle Arbeitsverzeichnis (identisch zur Logik in _setup_logging).
     """
+    from datetime import datetime
+
     _enable_windows_ansi()
+
+    log_filename = os.path.join(
+        "logs", f"mn_trading_bot_{datetime.now().strftime('%Y%m%d')}.log"
+    )
+    log_path_abs = os.path.abspath(log_filename)
+
     print(
         f"\n  {TEAL}MN TRADING BOT{R}  {G0}v1.0.0{R}  "
-        f"{G1}Log: {G2}logs/mn_trading_bot_YYYMMDD.log{R}  "
+        f"{G1}Log: {G2}{log_path_abs}{R}  "
         f"{G0}Ctrl+C to stop{R}\n"
     )
 
-
-# ═════════════════════════════════════════════════════════════════════════════     
-# _setup_logging  —  paste this entire method into Bot,
-#                    replacing the existing _setup_logging()
-# ═════════════════════════════════════════════════════════════════════════════
 def _setup_logging(self):       
     """
     FILE    -> logs/mn_trading_bot_YYYMMDD.log  (full DEBUG detail)
@@ -125,7 +131,7 @@ def _setup_logging(self):
     _enable_windows_ansi()
 
     # ── log file ──────────────────────────────────────────────────────────────
-    logs_dir = os.environ.get("MN_BOT_LOG_DIR", "logs")
+    logs_dir = "logs"
     if not os.path.exists(logs_dir):
         os.makedirs(logs_dir)
     log_filename = os.path.join(

@@ -3,21 +3,6 @@
 import json
 import os
 
-def _config_dir() -> str:
-    """
-    Basisverzeichnis fuer Config-Dateien.
-
-    Default: "config" (relativ zum aktuellen Arbeitsverzeichnis - exakt das
-    bisherige Verhalten, 100% rueckwaertskompatibel).
-
-    Fuer Multi-User-Setups (z.B. Trading Partner mit eigenem Windows-Account,
-    aber gemeinsamem Botcode) kann per Umgebungsvariable MN_BOT_CONFIG_DIR
-    ein user-spezifisches Verzeichnis erzwungen werden - unabhaengig davon,
-    aus welchem cwd der Bot gestartet wird. Siehe start_bot_*.ps1, welches
-    diese Variable vor dem Python-Aufruf setzt.
-    """
-    return os.environ.get("MN_BOT_CONFIG_DIR", "config")
-
 def load_json_config(path: str, defaults: dict) -> dict:
     """
     Generic JSON config loader with defaults.
@@ -39,12 +24,12 @@ def load_bot_mode_settings() -> dict:
     defaults = {
         "DEBUG_MODE": True,
         "CHECK_CONDITIONS": True,
-        "CHECK_EXECUTION_TIME": True,
+        "CHECK_EXECUTION_TIME": False,
         "CHECK_MARKET_OPEN": True,
     }
 
     return load_json_config(
-        os.path.join(_config_dir(), "bot_mode_settings.json"),
+        "config/bot_mode_settings.json",
         defaults
     )
 
@@ -62,7 +47,7 @@ def load_broker_settings() -> dict:
     }
 
     return load_json_config(
-        os.path.join(_config_dir(), "broker_settings.json"),
+        "config/broker_settings.json",
         defaults
     )
 
@@ -74,7 +59,7 @@ def load_telegram_settings() -> dict:
     }
 
     return load_json_config(
-        os.path.join(_config_dir(), "telegram_settings.json"),
+        "config/telegram_settings.json",
         defaults
     )
 
@@ -82,7 +67,7 @@ def load_trade_templates() -> dict[str, dict]:
     """
     Load trade templates keyed by TEMPLATENAME.
     """
-    path = os.path.join(_config_dir(), "trade_templates.json")
+    path = "config/trade_templates.json"
 
     if not os.path.exists(path):
         print("⚠️ trade_templates.json not found")
@@ -107,7 +92,7 @@ def load_schedules() -> list[dict]:
     """
     Load raw schedules.
     """
-    path = os.path.join(_config_dir(), "schedules.json")
+    path = "config/schedules.json"
 
     if not os.path.exists(path):
         print("⚠️ schedules.json not found")
@@ -120,7 +105,6 @@ def load_schedules() -> list[dict]:
     except Exception as e:
         print(f"⚠️ Failed to load schedules.json: {e}")
         return []
-
 
 def load_merged_schedules() -> list[dict]:
     """
@@ -163,3 +147,18 @@ def load_merged_schedules() -> list[dict]:
         merged.append(cfg)
 
     return merged
+
+def resolve_trade_report_csv_path(*, base_path: str, is_paper_trading: bool) -> str:
+    """
+    Haengt bei Paper Trading ein "_paper"-Suffix vor die Dateiendung an,
+    damit Paper- und Live-Trades nie in dieselbe CSV geschrieben werden.
+
+    "reports/mn_trading_trade_report.csv" ->
+        "reports/mn_trading_trade_report_paper.csv"  (Paper Trading)
+        "reports/mn_trading_trade_report.csv"        (Live, unveraendert)
+    """
+    if not is_paper_trading:
+        return base_path
+
+    root, ext = os.path.splitext(base_path)
+    return f"{root}_paper{ext}"
