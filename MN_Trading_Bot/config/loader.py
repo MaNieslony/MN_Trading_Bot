@@ -5,20 +5,18 @@ import os
 
 def _config_dir() -> str:
     """
-    Basisverzeichnis für Config-Dateien.
+    Basisverzeichnis fuer Config-Dateien.
 
-    Default: "config" (relativ zum aktuellen Arbeitsverzeichnis – exakt das
-    bisherige Verhalten, 100% rückwärtskompatibel).
+    Default: "config" (relativ zum aktuellen Arbeitsverzeichnis - exakt das
+    bisherige Verhalten, 100% rueckwaertskompatibel).
 
-    Für Multi-User-Setups (z.B. Trading Partner mit eigenem Windows-Account,
+    Fuer Multi-User-Setups (z.B. Trading Partner mit eigenem Windows-Account,
     aber gemeinsamem Botcode) kann per Umgebungsvariable MN_BOT_CONFIG_DIR
-    ein user-spezifisches Verzeichnis erzwungen werden – unabhängig davon,
-    aus welchem cwd der Bot gestartet wird:
-
-        $env:MN_BOT_CONFIG_DIR = "C:\Users\Partner\mn_bot\config"
+    ein user-spezifisches Verzeichnis erzwungen werden - unabhaengig davon,
+    aus welchem cwd der Bot gestartet wird. Siehe start_bot_*.ps1, welches
+    diese Variable vor dem Python-Aufruf setzt.
     """
     return os.environ.get("MN_BOT_CONFIG_DIR", "config")
-
 
 def load_json_config(path: str, defaults: dict) -> dict:
     """
