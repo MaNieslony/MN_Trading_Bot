@@ -1,0 +1,5 @@
+icacls "C:\MN_Trading_Bot" /inheritance:r
+icacls "C:\MN_Trading_Bot" /grant:r "Administrator:(OI)(CI)F"
+icacls "C:\MN_Trading_Bot" /grant:r "Administrators:(OI)(CI)F"
+icacls "C:\MN_Trading_Bot" /grant:r "Matthias:(OI)(CI)F"
+icacls "C:\MN_Trading_Bot" /grant:r "Marko:(OI)(CI)RX"

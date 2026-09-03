@@ -74,11 +74,6 @@
     <Folder Include="trade\" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="config\bot_mode_settings.json" />
-    <Content Include="config\broker_settings.json" />
-    <Content Include="config\schedules.json" />
-    <Content Include="config\telegram_settings.json" />
-    <Content Include="config\trade_templates.json" />
     <Content Include="requirements.txt" />
     <Content Include="tradetype\__pycache__\bull_put.cpython-313.pyc" />
     <Content Include="tradetype\__pycache__\__init__.cpython-313.pyc" />
