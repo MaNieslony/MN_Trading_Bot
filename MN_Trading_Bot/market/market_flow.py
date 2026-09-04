@@ -160,8 +160,19 @@ def should_trade_today(
 def wait_for_ticker_data(
     tickers: List,
     timeout: float,
-    wait_for_greeks: bool = False
+    wait_for_greeks: bool = False,
+    ib=None,
 ) -> bool:
+    """
+    Wartet auf Ticker-Daten (Bid/Ask oder Model-Greeks).
+
+    WICHTIG: ruft pro Schleifendurchlauf ib.sleep() (falls ib übergeben
+    wird), damit die Event-Loop eingehende Ticks tatsächlich verarbeiten
+    kann. Ohne das ist die Schleife ein reiner Busy-Spin, der während der
+    gesamten Wartezeit KEINE neuen Daten hereinlassen kann - das Ergebnis
+    steht dann schon beim ersten Check fest (sofort True oder Timeout,
+    ganz unabhängig davon wie lange man wartet).
+    """
     start = time.time()
 
     while time.time() - start < timeout:
@@ -172,6 +183,9 @@ def wait_for_ticker_data(
             if all(t.bid > 0 and t.ask > 0 for t in tickers):
                 return True
 
-        #time.sleep(0.05)
+        if ib is not None:
+            ib.sleep(0.05)
+        else:
+            time.sleep(0.05)
 
     return False

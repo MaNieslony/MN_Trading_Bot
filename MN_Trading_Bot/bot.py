@@ -226,7 +226,7 @@ class Bot:
         ensure_live_data_if_market_open(ib=self.ib,is_market_open_callable=self.is_market_open,is_paper_trading=self._is_paper_trading)
     
     def wait_for_ticker_data(self, tickers, timeout=0.5, wait_for_greeks=False):
-        return wait_for_ticker_data(tickers=tickers,timeout=timeout,wait_for_greeks=wait_for_greeks)
+        return wait_for_ticker_data(tickers=tickers,timeout=timeout,wait_for_greeks=wait_for_greeks,ib=self.ib)
 
 # ============================================================================
 # MARKET (delegated to market.adapters)

@@ -1,8 +1,3 @@
-# market/greeks.py
-
-from typing import Dict, List
-
-
 def get_option_deltas(
     *,
     ib,
@@ -18,12 +13,21 @@ def get_option_deltas(
     Fetch delta values for a list of option strikes via IB.
 
     Drop-in extraction of Bot.get_option_deltas.
+
+    WICHTIG: cancelt am Ende IMMER (Erfolg, Timeout oder Exception) die
+    angeforderten Market-Data-Subscriptions. Sonst bleiben offene Lines
+    liegen, die nachfolgende Delta-Fetches (z.B. CALL direkt nach PUT)
+    durch zusätzliche Marktdaten-Line-Auslastung verlangsamen können,
+    und auf dem nächsten Rescan wird fälschlich "sofort" erfolgreich
+    fortgesetzt, weil die alten Lines schon warmgelaufen sind.
     """
-    
+
     MAX_SCAN_DELTA = 0.47   # Ignore deep ITM options
     GREEKS_TIMEOUT_SECONDS = 10.0  # in seconds
 
     deltas: Dict[float, float] = {}
+    contracts = []
+    tickers = []
 
     try:
         logger.debug(f"Fetching delta for {len(strikes)} strikes ({put_call})")
@@ -31,7 +35,6 @@ def get_option_deltas(
         # ------------------------------------------------------------
         # QUALIFY OPTION CONTRACTS
         # ------------------------------------------------------------
-        contracts = []
         for strike in strikes:
             try:
                 contract = get_option_conid_callable(
@@ -101,5 +104,12 @@ def get_option_deltas(
         logger.error(
             f"Error fetching option deltas: {e}", exc_info=True
         )
+
+    finally:
+        for _strike, contract in contracts:
+            try:
+                ib.cancelMktData(contract)
+            except Exception:
+                pass
 
     return deltas
