@@ -11,7 +11,6 @@ from market.rut_ic_steering import select_rut_iron_condor, resolve_dte_and_delta
 from trade.pricing import price_2leg_credit, price_3leg_credit, price_4leg_credit
 
 from trade.metrics import TradeMetrics
-from trade.pricing import price_2leg_credit, price_3leg_credit
 
 def _set_short_mid_from_tickers(metrics: TradeMetrics, tickers) -> None:
     """Set metrics.short_leg_mid from the first ticker's bid/ask (short leg)."""
@@ -61,17 +60,19 @@ def select_expiry_iron_condor(bot) -> str:
 
     matrix = bot.IV_RANK_MATRIX
     iv_override = getattr(bot, "IV_RANK_OVERRIDE", None)
+    override_active = False
 
     if iv_override is not None:
         try:
             iv_rank = int(iv_override)
-        except Exception:
+        except (TypeError, ValueError):
             bot.logger.error(
                 f"RUT-IC: IV_RANK_OVERRIDE ungültig ({iv_override!r}) – "
                 f"falle zurück auf Live-Berechnung"
             )
             iv_rank = bot.get_iv_rank()
         else:
+            override_active = True
             bot.logger.warning(
                 f"RUT-IC: manueller IV-Rank-Override AKTIV -> {iv_rank} "
                 f"(Live-Berechnung wird übersprungen)"
@@ -80,10 +81,11 @@ def select_expiry_iron_condor(bot) -> str:
         iv_rank = bot.get_iv_rank()
 
     if iv_rank is None:
-        bot.logger.error("RUT-IC: IV-Rank nicht verfügbar – nutze konservativsten Matrix-Eintrag")
-        fallback = min(matrix, key=lambda r: float(r["MIN_IV_RANK"]))
-        target_dte, delta_limit = int(fallback["MAX_DTE"]), float(fallback["DELTA_LIMIT"])
-        iv_rank = float(fallback["MIN_IV_RANK"])
+        bot.logger.error("RUT-IC: IV-Rank nicht verfügbar – nutze Matrix-Eintrag mit kleinstem Delta-Limit")
+        fallback = min(matrix,key=lambda r: _norm_delta(float(r["DELTA_LIMIT"])))
+        target_dte = int(fallback["MAX_DTE"])
+        delta_limit = float(fallback["DELTA_LIMIT"])
+        iv_rank = int(float(fallback["MIN_IV_RANK"]))
     else:
         resolved = resolve_dte_and_delta_from_iv_rank(iv_rank=iv_rank, matrix=matrix)
         if resolved is None:
@@ -113,7 +115,7 @@ def select_expiry_iron_condor(bot) -> str:
 
     bot.logger.info(
         f"RUT-IC Steering: IV-Rank={iv_rank}"
-        f"{' (Override)' if iv_override is not None else ''} -> "
+        f"{' (Override)' if override_active else ''} -> "
         f"Ziel-DTE={target_dte}, Delta-Grenze={delta_limit:.2f}"
     )
 
@@ -267,16 +269,13 @@ def fetch_deltas_if_needed(
     strikes_for_delta: List[float],
     delta_cache: Optional[Dict[float, float]],
 ) -> Tuple[Optional[Dict[float, float]], Optional[Dict[float, float]]]:
-    """Return (deltas, updated_cache).
+    """
+    Return (deltas, updated_cache).
 
-    Timing rule (entry @ execution time):
-    - If cached deltas exist: use them immediately (non-blocking).
-    - If no cache: do NOT fetch synchronously here (would delay order placement).
-
-    Strategy-specific delta refresh (e.g. NDX rescan>=3) is handled inside the
-    steering logic (market/ndx_steering.py). RUT Iron Condor fetches its own
-    Put- and Call-Deltas inside market/rut_ic_steering.py – generic cache is
-    skipped entirely for that TRADE_TYPE.
+    Timing rule:
+    - If cached deltas exist: use them immediately.
+    - NDX and RUT Iron Condor handle missing deltas in their steering modules.
+    - Other strategies get exactly one synchronous fetch attempt per trading cycle.
     """
 
     if delta_cache is not None:
@@ -400,7 +399,7 @@ def select_legs(bot, expiry: str, strikes: List[float], deltas: Dict[float, floa
             underlying_price=bot.underlying_price,
             expiry=expiry,
             trading_class=trading_class,
-            iv_rank=float(bot.IV_RANK_VALUE),
+            iv_rank=int(bot.IV_RANK_VALUE),
             iv_rank_matrix=bot.IV_RANK_MATRIX,
             delta_limit=bot._ic_delta_limit,
             strike_step=float(bot.STRIKE_STEP or 5),
