@@ -70,7 +70,7 @@ def _walk_long_strike(
     """
     Briefkurs-Regel: bei min_width starten, so lange nach außen wandern, wie der
     Briefkurs (Ask) noch sinkt; stoppen sobald der Ask-Preis identisch bleibt
-    (kein Prämienvorteil) oder max_width erreicht ist.
+    ODER steigt (kein Prämienvorteil) oder max_width erreicht ist.
     """
     n_min_steps = max(1, round(min_width / strike_step))
     n_max_steps = round(max_width / strike_step)
@@ -101,15 +101,19 @@ def _walk_long_strike(
         if next_ask is None:
             break
 
-        # Briefkurs identisch -> kein Vorteil -> beim näheren Strike bleiben
-        if abs(next_ask - current_ask) < 0.001:
+        # Kein echter Vorteil (Plateau ODER next_ask höher) -> beim
+        # günstigeren/näheren Strike bleiben. Vorher wurde nur das Plateau
+        # geprüft; ein steigender Ask (z.B. durch dünne Quotes bei weit-OTM
+        # Strikes) hätte den Walk fälschlich weiterlaufen lassen.
+        if next_ask >= current_ask - 0.001:
             logger.debug(
-                f"{side_label}: Ask-Plateau bei {current_strike} (${current_ask:.2f}) "
-                f"vs {next_strike} (${next_ask:.2f}) – kein weiteres Hinausschieben"
+                f"{side_label}: kein weiterer Ask-Vorteil bei "
+                f"{current_strike} (${current_ask:.2f}) vs "
+                f"{next_strike} (${next_ask:.2f}) – kein weiteres Hinausschieben"
             )
             break
 
-        # Ask günstiger -> mehr Prämie für gleiches Risiko -> weiter hinausschieben
+        # Ask echt niedriger -> Long-Leg günstiger, daher weiter nach außen gehen
         current_n = next_n
         current_strike = next_strike
         current_ask = next_ask
