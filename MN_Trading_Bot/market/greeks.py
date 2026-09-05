@@ -1,4 +1,4 @@
-#market\greeks.py
+# market\greeks.py
 from typing import Dict, List
 
 def get_option_deltas(
@@ -22,7 +22,6 @@ def get_option_deltas(
     deltas: Dict[float, float] = {}
     contracts = []
     tickers = []
-    request_ids = []
 
     try:
         logger.debug(f"Fetching delta for {len(strikes)} strikes ({put_call})")
@@ -48,7 +47,7 @@ def get_option_deltas(
         )
 
         # REQUEST MARKET DATA WITH GREEKS
-        for i, (strike, contract) in enumerate(contracts):
+        for strike, contract in contracts:
             ticker = ib.reqMktData(contract, genericTickList="106")  # 106 = greeks
             tickers.append(ticker)
 
@@ -59,7 +58,7 @@ def get_option_deltas(
             return deltas
 
         # EXTRACT DELTA VALUES
-        for (strike, _contract), ticker in zip(contracts, tickers):
+        for (strike, contract), ticker in zip(contracts, tickers):
             if ticker.modelGreeks and hasattr(ticker.modelGreeks, "delta"):
                 delta = ticker.modelGreeks.delta
                 if delta is not None:

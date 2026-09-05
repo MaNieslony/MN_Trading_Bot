@@ -1,7 +1,6 @@
 # market/rut_ic_steering.py
 from typing import Dict, List, Optional, Tuple
 
-
 def resolve_dte_and_delta_from_iv_rank(
     *,
     iv_rank: float,
@@ -208,9 +207,6 @@ def select_rut_iron_condor(
             f"RUT-IC: kein gültiger Short-Strike gefunden "
             f"(put={short_put}, call={short_call}, delta_limit={delta_limit:.4f})"
         )
-
-    if not short_call:
-        logger.warning("RUT-IC: Keine CALL-Short-Strike gefunden")
         return None
 
     short_put_strike, short_put_delta = short_put

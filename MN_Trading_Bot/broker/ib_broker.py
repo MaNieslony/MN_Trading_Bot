@@ -10,7 +10,7 @@ class IBBroker:
     Der Bot enthält keine IB-connect/disconnect Logik mehr.
     """
 
-    def __init__(self, ib: IB, logger, host: str, port: int, client_id: int,
+    def __init__(self, ib: IB, logger, host: str, port: int, client_id: int, is_paper_trading: bool,
                  is_market_open_callable, setup_error_callback_callable):
         self.ib = ib
         self.logger = logger
@@ -18,12 +18,11 @@ class IBBroker:
         self.host = host
         self.port = port
         self.client_id = client_id
+        self.is_paper_trading = is_paper_trading
 
         # Callbacks aus Bot (weil die Logik dort schon existiert)
         self.is_market_open = is_market_open_callable
         self._setup_error_callback = setup_error_callback_callable
-
-        self.is_paper_trading = (self.port == 7497)
 
     def connect(self) -> bool:
         """Connect to Interactive Brokers."""
@@ -49,7 +48,6 @@ class IBBroker:
                 self._setup_error_callback()
 
                 # Paper/Live info
-                self.is_paper_trading = (self.port == 7497)
                 if self.is_paper_trading:
                     self.logger.info("📝 PAPER TRADING MODE detected")
                 else:

@@ -8,7 +8,7 @@ def build_error_callback(logger):
     # ignoriert (weder Datei- noch Konsolen-Log). 10349 ist die seit der
     # neuen TWS-Version zusätzlich gesendete Hinweismeldung, dass die
     # TIF gemäß Order-Voreinstellungen auf GTC gesetzt wurde.
-    IGNORED_CODES = (104, 201, 202, 10349)
+    IGNORED_CODES = (1100, 1101, 1102, 2104, 2106, 2158, 104, 201, 202, 10349)
 
     def error_callback(reqId, errorCode, errorString, contract):
         nonlocal error_1100_logged, error_1102_logged

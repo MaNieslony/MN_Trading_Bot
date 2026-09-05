@@ -15,7 +15,6 @@ Features:
 
 USAGE:
   python mn_trading_bot.py --schedule SPX-FFBPS
-  python mn_trading_bot.py --schedule SPX-10BPS --debug
 
 CONFIGURATION FILES:
   config/schedules.json              # When & under which conditions to trade
@@ -124,13 +123,12 @@ class Bot:
 
         self.IB_HOST = broker_cfg["IB_HOST"]
         self.IB_CLIENT_ID = broker_cfg["CLIENT_ID"]
+        self._is_paper_trading = broker_cfg["USE_PAPER_TRADING"]
 
-        if broker_cfg["USE_PAPER_TRADING"]:
+        if self._is_paper_trading:
             self.IB_PORT = broker_cfg["IB_PORT_PAPER"]
         else:
             self.IB_PORT = broker_cfg["IB_PORT_LIVE"]
-
-        self._is_paper_trading = (self.IB_PORT == 7497)
 
         # ------------------------------------------------------------
         # Paper Trading: separate CSV, damit Paper- und Live-Trades sich
@@ -164,6 +162,7 @@ class Bot:
         # IB Connection
         # ------------------------------------------------------------
         self.ib = IB()
+        self._ib_error_callback = None
 
         # Initialize market-related caches (option chains, deltas, etc.)
         init_market_caches(self)
@@ -175,20 +174,12 @@ class Bot:
             host=self.IB_HOST,
             port=self.IB_PORT,
             client_id=self.IB_CLIENT_ID,
+            is_paper_trading=self._is_paper_trading,
             is_market_open_callable=self.is_market_open,
             setup_error_callback_callable=self._setup_error_callback,
         )
 
         self.broker.bot = self
-
-        # Silence ib_insync connection noise
-        _orig_error = self.ib.wrapper.error
-
-        def _patched_error(reqId, errorCode, errorString, contract=""):
-            if errorCode not in (1100, 1102, 1300, 2104, 2106, 2158):
-                _orig_error(reqId, errorCode, errorString, contract)
-
-        self.ib.wrapper.error = _patched_error
 
 # ============================================================================
 # BROKER
@@ -209,7 +200,9 @@ class Bot:
 # IB ERRORS
 # ============================================================================
     def _setup_error_callback(self):
-        self.ib.errorEvent += build_error_callback(self.logger)
+        if self._ib_error_callback is None:
+            self._ib_error_callback = build_error_callback(self.logger)
+            self.ib.errorEvent += self._ib_error_callback
 # ============================================================================
 # RUNTIME
 # ============================================================================
@@ -421,7 +414,6 @@ class Bot:
             get_rsi_callable=self.get_rsi,
             get_sma_callable=self.get_sma,
             get_vix_callable=self.get_vix,
-            get_iv_rank_callable=self.get_iv_rank,
             underlying_price=self.underlying_price,
             open_price=self.open_price,
             logger=self.logger,
@@ -440,7 +432,7 @@ class Bot:
 
     def is_paper_trading(self) -> bool:
         """Check if currently connected to paper trading account."""
-        return self._is_paper_trading if self._is_paper_trading is not None else False    
+        return self._is_paper_trading
 
     def get_SPX_index_contract(self):
         """
