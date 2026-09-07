@@ -92,6 +92,62 @@ python bot.py --schedule SPX-FFBPS --debug
 ### Verfügbare Optionen
 python bot.py --help
 
+**MN Trading Bot Scheduler** 
+
+Der Windows Dienst "MN Trading Bot Scheduler" läuft im Hintergrund und überwacht das jeweilige Schedules File %userprofile%/mn_bot/config/schedules.json
+auf "EXECUTION_TIME": "<time>" und lädt die Schedules in seinen RAM.
+
+Bei der Ausführung wird dann ein Windows Task Scheduler Task pro User (MN_Bot_Launcher_%USERNAME%) erstellt,
+damit das Konsolenfenster des Bots (python bot.py --schedule <schedule-name>) im User-Kontext während des Durchlaufs sichtbar dargestellt wird.
+
+Der Windows Task ruft wiederum C:/MN_Trading_Bot/run_bot.bat auf
+@echo off
+set USERNAME_PARAM=%~1
+set TASK_NAME=%~2
+set BOT_DIR=%~3
+set PYTHON_EXE=%~4
+set SCRIPT_PATH=%~5
+
+cd /d "%BOT_DIR%"
+
+:: 1. Gezieltes Beenden alter Instanzen genau dieser Schedule für diesen User
+taskkill /F /FI "USERNAME eq %USERNAME_PARAM%" /FI "WINDOWTITLE eq MN Trading Bot - %TASK_NAME%*" /IM python.exe >nul 2>&1
+
+:: 2. Warten, damit Ressourcen/Ports sauber freigegeben werden (0.5 Sekunde)
+timeout /t 1 /nobreak >nul
+
+:: 3. Starten des Bots in einem frischen Konsolenfenster
+start "MN Trading Bot - %TASK_NAME%" "%PYTHON_EXE%" -u "%SCRIPT_PATH%" --schedule "%TASK_NAME%"
+
+
+## 📁 Projektstruktur
+C:\ProgramData\C:\ProgramData\MNTradingBotScheduler
+
+├── service_runner.py
+
+
+# 1. Dienst mit NSSM erstellen
+nssm install "MN Trading Bot Scheduler"  "python.exe" "C:\ProgramData\MNTradingBotScheduler\service_runner.py"
+
+# 2. Arbeitsverzeichnis festlegen
+nssm set "MN Trading Bot Scheduler" AppDirectory "C:\ProgramData\MNTradingBotScheduler"
+
+# 3. Log-Dateien für den Dienst festlegen (wichtig für Fehlersuche)
+nssm set "MN Trading Bot Scheduler" AppStdout "C:\ProgramData\MNTradingBotScheduler\service_out.log"
+nssm set "MN Trading Bot Scheduler  AppStderr "C:\ProgramData\MNTradingBotScheduler\service_err.log"
+
+# 4. Neustart-Verhalten konfigurieren (falls das Skript einmal abstürzt)
+nssm set "MN Trading Bot Scheduler" AppExit Default Restart
+nssm set "MN Trading Bot Scheduler" AppRestartDelay 5000
+
+# 5. Setzt die UTF-8 Umgebungsvariable für den Windows-Dienst
+nssm set "MN Trading Bot Scheduler" AppEnvironmentExtra "PYTHONUTF8=1"
+
+# 6. Description setzen
+nssm set "MN Trading Bot Scheduler" Description "Multi-User Trading Scheduler Dienst zur automatischen Steuerung und Ausführung von Python Bot Instanzen."
+
+
+
 **Verfügbare Schedules** werden angezeigt, wenn `--schedule` fehlt.
 
 ## 📁 Projektstruktur
