@@ -67,6 +67,7 @@
     <Folder Include="conditions\" />
     <Folder Include="config\" />
     <Folder Include="market\" />
+    <Folder Include="manager\" />
     <Folder Include="runtime\" />
     <Folder Include="runtime\context\" />
     <Folder Include="tradetype\" />

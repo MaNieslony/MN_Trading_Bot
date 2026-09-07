@@ -16,9 +16,6 @@ def validate_startup(
     if not ib_host:
         errors.append("IB_HOST missing")
 
-    if ib_port not in (7496, 7497):
-        errors.append(f"Invalid IB_PORT: {ib_port}")
-
     if allocation <= 0:
         errors.append("ALLOCATION must be > 0")
 
