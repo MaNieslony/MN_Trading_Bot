@@ -381,3 +381,8 @@ FodyWeavers.xsd"MN_Trading_Bot/config/telegram_settings.json"
 /MN_Trading_Bot/manual/
 
 /MN_Trading_Bot/*.ps1
+
+/MN_Trading_Bot/*.vbs
+
+/MN_Trading_Bot/ui/pxo
+/MN_Trading_Bot/ui/backup
