@@ -550,7 +550,8 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
     QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
     QTimeEdit, QGroupBox, QScrollArea, QMessageBox, QFrame, QSplitter, QInputDialog,
-    QAbstractItemView, QListWidget, QListWidgetItem, QAbstractSpinBox, QFileDialog
+    QAbstractItemView, QListWidget, QListWidgetItem, QAbstractSpinBox, QFileDialog,
+    QSizePolicy
 )
 from PySide6.QtCore import Qt, QTime, QTimer, QEvent, QObject
 from PySide6.QtGui import QFont, QColor, QIcon
@@ -1657,6 +1658,10 @@ class TradingBotUI(QMainWindow):
                 t_type.addItem(current_type)
             t_type.setCurrentText(current_type)
             t_type.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "TRADE_TYPE", text))
+            # Nur bei expliziter Auswahl/Bestätigung (nicht bei jedem Tastendruck
+            # im editierbaren Feld) neu aufbauen, damit Leg3/Leg4 sofort korrekt
+            # erscheinen/verschwinden.
+            t_type.activated.connect(lambda _idx: self._rebuild_template_tabs_keep_index())
 
             symbol = QComboBox()
             symbol.setEditable(True)
@@ -1749,120 +1754,256 @@ class TradingBotUI(QMainWindow):
             
         self._apply_plus_minus_symbols()    
 
+    def _normalize_trade_type(self, tmpl: dict) -> str:
+        """Analog zu bot.py._create_trade_type: normalisiert TRADE_TYPE-Varianten
+        auf 'BULL_PUT' / 'PBW' / 'IRON_CONDOR', sonst 'OTHER' (unbekannt/legacy)."""
+        tt = (tmpl.get("TRADE_TYPE") or "").strip().upper()
+        if tt in ("BULL_PUT", "PUT_SPREAD", "BPS"):
+            return "BULL_PUT"
+        if tt in ("PBW", "PUT_BROKEN_WING"):
+            return "PBW"
+        if tt in ("IRON_CONDOR", "RUT_IRON_CONDOR"):
+            return "IRON_CONDOR"
+        return "OTHER"
+
+    def _rebuild_template_tabs_keep_index(self):
+        """Baut die Template-Tabs neu auf (z.B. nach TRADE_TYPE-Wechsel) und
+        springt danach zurück auf den zuvor aktiven Tab."""
+        current_tab = self.template_tabs.currentIndex()
+        self.build_template_tabs()
+        if 0 <= current_tab < self.template_tabs.count():
+            self.template_tabs.setCurrentIndex(current_tab)
+
+    def _build_leg_row(
+        self,
+        idx: int,
+        tmpl: dict,
+        leg_num: int,
+        leg_label: str,
+        fixed,
+        show_target: bool,
+        target_default: int = 0,
+        target_type_options=None,
+        target_type_default: str = "",
+        dte_default: int = 4,
+    ) -> QWidget:
+        """Baut eine komplette, kompakte Ein-Zeilen-Darstellung für ein Leg –
+        INKLUSIVE des "Leg1:"-Labels in derselben QHBoxLayout-Zeile.
+        Bewusst NICHT über QFormLayout(label, field), weil QFormLayout Label-
+        und Feld-Spalte bei unterschiedlich hohen Widgets nicht zuverlässig
+        vertikal synchronisiert (führt zu "Leg1:" vs. Inhalt versetzt). Da
+        hier alles in EINER Zeile/EINEM Layout liegt und jedes Element
+        explizit Qt.AlignVCenter bekommt, sind Label und Felder garantiert
+        auf einer Linie.
+        fixed: (ACTION, PUT_CALL, QTY) wenn durch die Trade-Type-Struktur
+        vorgegeben (wird angezeigt + ins Template geschrieben, aber nicht
+        editierbar) – oder None für frei editierbar (Fallback bei unbekanntem
+        TRADE_TYPE). show_target steuert, ob Target/Target-Type/DTE zusätzlich
+        in derselben Zeile angezeigt werden (bei Iron Condor Leg1-4 nicht
+        nötig, da die Steuerung über IV-Rank/Spread-Width läuft)."""
+        row_widget = QWidget()
+        row_widget.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+
+        # Feste Breite, damit die Felder aller Legs untereinander sauber
+        # anfangen, egal ob "Leg1:" oder "Leg2 (Lower Wing):" davor steht.
+        label_widget = QLabel(leg_label)
+        label_widget.setFixedWidth(150)
+        row_layout.addWidget(label_widget, 0, Qt.AlignVCenter)
+
+        prefix = f"LEG{leg_num}_"
+
+        if fixed is not None:
+            action_val, put_call_val, qty_val = fixed
+            # Feste Werte erzwingen & ins Template schreiben, unabhängig vom
+            # bisherigen Inhalt – sichtbar, aber nicht veränderbar.
+            self.update_template_val(idx, prefix + "ACTION", action_val)
+            self.update_template_val(idx, prefix + "PUT_CALL", put_call_val)
+            self.update_template_val(idx, prefix + "QTY", qty_val)
+
+            fixed_lbl = QLabel(f"<b>{action_val} {put_call_val}</b> \u00d7 {qty_val}  <i>(fest)</i>")
+            fixed_lbl.setMinimumWidth(120)
+            row_layout.addWidget(fixed_lbl, 0, Qt.AlignVCenter)
+        else:
+            action_combo = QComboBox()
+            action_combo.setMinimumWidth(90)
+            action_combo.addItems(["SELL", "BUY"])
+            current = tmpl.get(prefix + "ACTION", "SELL")
+            if current and action_combo.findText(current) == -1:
+                action_combo.addItem(current)
+            action_combo.setCurrentText(current)
+            self.update_template_val(idx, prefix + "ACTION", current)
+            action_combo.currentTextChanged.connect(
+                lambda text, i=idx, k=prefix + "ACTION": self.update_template_val(i, k, text)
+            )
+
+            put_call_combo = QComboBox()
+            put_call_combo.setMinimumWidth(60)
+            put_call_combo.addItems(["P", "C"])
+            current = tmpl.get(prefix + "PUT_CALL", "P")
+            if current and put_call_combo.findText(current) == -1:
+                put_call_combo.addItem(current)
+            put_call_combo.setCurrentText(current)
+            self.update_template_val(idx, prefix + "PUT_CALL", current)
+            put_call_combo.currentTextChanged.connect(
+                lambda text, i=idx, k=prefix + "PUT_CALL": self.update_template_val(i, k, text)
+            )
+
+            qty_val = int(tmpl.get(prefix + "QTY", 1))
+            qty_spin = QSpinBox()
+            qty_spin.setMinimumWidth(55)
+            qty_spin.setRange(1, 50)
+            qty_spin.setValue(qty_val)
+            self.update_template_val(idx, prefix + "QTY", qty_val)
+            qty_spin.valueChanged.connect(
+                lambda val, i=idx, k=prefix + "QTY": self.update_template_val(i, k, val)
+            )
+
+            row_layout.addWidget(action_combo, 0, Qt.AlignVCenter)
+            row_layout.addWidget(put_call_combo, 0, Qt.AlignVCenter)
+            row_layout.addWidget(QLabel("Qty:"), 0, Qt.AlignVCenter)
+            row_layout.addWidget(qty_spin, 0, Qt.AlignVCenter)
+
+        if show_target:
+            target_key = prefix + "TARGET"
+            target_val = int(float(tmpl.get(target_key, target_default)))
+            target_spin = QSpinBox()
+            target_spin.setMinimumWidth(70)
+            target_spin.setRange(-1000, 1000)
+            target_spin.setValue(target_val)
+            self.update_template_val(idx, target_key, target_val)
+            target_spin.valueChanged.connect(
+                lambda val, i=idx, k=target_key: self.update_template_val(i, k, val)
+            )
+
+            type_key = prefix + "TARGET_TYPE"
+            type_combo = QComboBox()
+            type_combo.setEditable(True)
+            type_combo.setMinimumWidth(150)
+            type_combo.addItems(target_type_options or [])
+            current_type = tmpl.get(type_key, target_type_default)
+            if current_type and type_combo.findText(current_type) == -1:
+                type_combo.addItem(current_type)
+            type_combo.setCurrentText(current_type)
+            self.update_template_val(idx, type_key, current_type)
+            type_combo.currentTextChanged.connect(
+                lambda text, i=idx, k=type_key: self.update_template_val(i, k, text)
+            )
+
+            dte_key = prefix + "DTE"
+            dte_val = int(tmpl.get(dte_key, dte_default))
+            dte_spin = QSpinBox()
+            dte_spin.setMinimumWidth(55)
+            dte_spin.setRange(0, 80)
+            dte_spin.setValue(dte_val)
+            self.update_template_val(idx, dte_key, dte_val)
+            dte_spin.valueChanged.connect(
+                lambda val, i=idx, k=dte_key: self.update_template_val(i, k, val)
+            )
+
+            row_layout.addWidget(QLabel("Target:"), 0, Qt.AlignVCenter)
+            row_layout.addWidget(target_spin, 0, Qt.AlignVCenter)
+            row_layout.addWidget(QLabel("Type:"), 0, Qt.AlignVCenter)
+            row_layout.addWidget(type_combo, 0, Qt.AlignVCenter)
+            row_layout.addWidget(QLabel("DTE:"), 0, Qt.AlignVCenter)
+            row_layout.addWidget(dte_spin, 0, Qt.AlignVCenter)
+
+        return row_widget
+        
+    def _leg_row_label(self, text: str) -> QLabel:
+        """Zeilen-Label für die Leg-Definition-Sektion, vertikal zentriert.
+        Wichtig: QFormLayout.setLabelAlignment() steuert NUR die horizontale
+        Ausrichtung der Zeilenlabel – die vertikale Zentrierung gegenüber
+        einer (höheren) Feld-Zeile muss am QLabel selbst gesetzt werden,
+        sonst klebt das Label oben an der Zeile statt mittig zu sitzen."""
+        lbl = QLabel(text)
+        lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        return lbl        
+
     def _build_leg_definition_box(self, idx: int, tmpl: dict) -> QGroupBox:
-        """__SECTION__LEG_DEFINITION – Leg1 (Short) / Leg2 (Long) Basisstruktur.
-        Gilt für alle TradeTypes: Bull Put nutzt genau diese zwei Legs;
-        PBW/Iron Condor nutzen zusätzlich Leg3/Leg4 (aktuell nicht im GUI editierbar)."""
+        """__SECTION__LEG_DEFINITION – kompakt (1 Zeile pro Leg).
+        Bewusst NICHT checkable (anders als "Execution / Sweep Advanced"):
+        eine checkable GroupBox graut ihren Inhalt im unchecked-Zustand aus,
+        was hier – da die Werte ja immer sichtbar/gültig sein sollen – nur
+        unsauber aussieht. Jede Zeile wird über form.addRow(EIN Widget) statt
+        form.addRow(label, feld) eingehängt, weil QFormLayout Label- und
+        Feld-Spalte bei unterschiedlich hohen Widgets nicht zuverlässig
+        vertikal synchronisiert ("Leg1:" saß sonst versetzt zum Inhalt) – das
+        "Leg1:"-Label ist stattdessen Teil derselben Zeile in _build_leg_row().
+        Action/Put-Call/Qty sind für bekannte TradeTypes (Bull Put, PBW, Iron
+        Condor) durch die jeweilige Struktur vorgegeben und daher fest (nicht
+        editierbar), werden aber weiterhin ins Template geschrieben. Bei einem
+        unbekannten/legacy TRADE_TYPE bleibt Leg1/Leg2 komplett editierbar
+        (Fallback, wie zuvor)."""
         box = QGroupBox("Leg Definition")
         form = QFormLayout(box)
 
-        # --- LEG 1 ---
-        leg1_action = QComboBox()
-        leg1_action.addItems(["SELL", "BUY"])
-        current = tmpl.get("LEG1_ACTION", "SELL")
-        if current and leg1_action.findText(current) == -1:
-            leg1_action.addItem(current)
-        leg1_action.setCurrentText(current)
-        leg1_action.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "LEG1_ACTION", text))
+        trade_type = self._normalize_trade_type(tmpl)
 
-        leg1_put_call = QComboBox()
-        leg1_put_call.addItems(["P", "C"])
-        current = tmpl.get("LEG1_PUT_CALL", "P")
-        if current and leg1_put_call.findText(current) == -1:
-            leg1_put_call.addItem(current)
-        leg1_put_call.setCurrentText(current)
-        leg1_put_call.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "LEG1_PUT_CALL", text))
+        if trade_type == "BULL_PUT":
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 1, "Leg1 (Short Put):", fixed=("SELL", "P", 1), show_target=True,
+                target_default=45, target_type_options=["Delta"],
+                target_type_default="Delta", dte_default=4,
+            ))
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 2, "Leg2 (Long Put):", fixed=("BUY", "P", 1), show_target=True,
+                target_default=-10, target_type_options=["StrikeOffset_Leg1"],
+                target_type_default="StrikeOffset_Leg1", dte_default=4,
+            ))
 
-        leg1_qty = QSpinBox()
-        leg1_qty.setRange(1, 50)
-        leg1_qty.setValue(int(tmpl.get("LEG1_QTY", 1)))
-        leg1_qty.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "LEG1_QTY", val))
+        elif trade_type == "PBW":
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 1, "Leg1 (Body):", fixed=("SELL", "P", 2), show_target=True,
+                target_default=0, target_type_options=["NearestATM", "PercentageOTM"],
+                target_type_default="NearestATM", dte_default=4,
+            ))
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 2, "Leg2 (Lower Wing):", fixed=("BUY", "P", 1), show_target=True,
+                target_default=-30, target_type_options=["StrikeOffset_Leg1"],
+                target_type_default="StrikeOffset_Leg1", dte_default=4,
+            ))
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 3, "Leg3 (Upper Wing):", fixed=("BUY", "P", 1), show_target=True,
+                target_default=30, target_type_options=["StrikeOffset_Leg1"],
+                target_type_default="StrikeOffset_Leg1", dte_default=4,
+            ))
 
-        leg1_target = QDoubleSpinBox()
-        leg1_target.setRange(-1000.0, 1000.0)
-        leg1_target.setDecimals(2)
-        leg1_target.setSingleStep(0.5)
-        leg1_target.setValue(float(tmpl.get("LEG1_TARGET", 45.0)))
-        leg1_target.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "LEG1_TARGET", val))
+        elif trade_type == "IRON_CONDOR":
+            # Steuerung läuft komplett über IV-Rank Steering + Spread Width
+            # (siehe _build_iv_rank_steering_box / _build_spread_width_box) –
+            # Target/Type/DTE je Leg sind hier funktionslos und werden daher
+            # bewusst ausgeblendet, um die Sektion kompakt zu halten.
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 1, "Leg1 (Short Put):", fixed=("SELL", "P", 1), show_target=False,
+            ))
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 2, "Leg2 (Long Put):", fixed=("BUY", "P", 1), show_target=False,
+            ))
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 3, "Leg3 (Short Call):", fixed=("SELL", "C", 1), show_target=False,
+            ))
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 4, "Leg4 (Long Call):", fixed=("BUY", "C", 1), show_target=False,
+            ))
 
-        leg1_target_type = QComboBox()
-        leg1_target_type.addItems(["Delta", "PercentageOTM"])
-        current = tmpl.get("LEG1_TARGET_TYPE", "Delta")
-        if current and leg1_target_type.findText(current) == -1:
-            # z.B. "NearestATM" bei PBW-Templates – nicht überschreiben.
-            leg1_target_type.addItem(current)
-        leg1_target_type.setCurrentText(current)
-        leg1_target_type.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "LEG1_TARGET_TYPE", text))
-
-        leg1_dte = QSpinBox()
-        leg1_dte.setRange(0, 80)
-        leg1_dte.setValue(int(tmpl.get("LEG1_DTE", 4)))
-        leg1_dte.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "LEG1_DTE", val))
-
-        form.addRow("Leg1 Action:", leg1_action)
-        form.addRow("Leg1 Put/Call:", leg1_put_call)
-        form.addRow("Leg1 Qty:", leg1_qty)
-        form.addRow("Leg1 Target:", leg1_target)
-        form.addRow("Leg1 Target Type:", leg1_target_type)
-        form.addRow("Leg1 DTE:", leg1_dte)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
-        form.addRow(sep)
-
-        # --- LEG 2 ---
-        leg2_action = QComboBox()
-        leg2_action.addItems(["BUY", "SELL"])
-        current = tmpl.get("LEG2_ACTION", "BUY")
-        if current and leg2_action.findText(current) == -1:
-            leg2_action.addItem(current)
-        leg2_action.setCurrentText(current)
-        leg2_action.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "LEG2_ACTION", text))
-
-        leg2_put_call = QComboBox()
-        leg2_put_call.addItems(["P", "C"])
-        current = tmpl.get("LEG2_PUT_CALL", "P")
-        if current and leg2_put_call.findText(current) == -1:
-            leg2_put_call.addItem(current)
-        leg2_put_call.setCurrentText(current)
-        leg2_put_call.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "LEG2_PUT_CALL", text))
-
-        leg2_qty = QSpinBox()
-        leg2_qty.setRange(1, 50)
-        leg2_qty.setValue(int(tmpl.get("LEG2_QTY", 1)))
-        leg2_qty.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "LEG2_QTY", val))
-
-        leg2_target = QDoubleSpinBox()
-        leg2_target.setRange(-1000.0, 1000.0)
-        leg2_target.setDecimals(2)
-        leg2_target.setSingleStep(0.5)
-        leg2_target.setValue(float(tmpl.get("LEG2_TARGET", -10.0)))
-        leg2_target.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "LEG2_TARGET", val))
-
-        leg2_target_type = QComboBox()
-        leg2_target_type.setEditable(True)
-        leg2_target_type.addItems(["StrikeOffset_Leg1"])
-        current = tmpl.get("LEG2_TARGET_TYPE", "StrikeOffset_Leg1")
-        if current and leg2_target_type.findText(current) == -1:
-            leg2_target_type.addItem(current)
-        leg2_target_type.setCurrentText(current)
-        leg2_target_type.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "LEG2_TARGET_TYPE", text))
-
-        leg2_dte = QSpinBox()
-        leg2_dte.setRange(0, 80)
-        leg2_dte.setValue(int(tmpl.get("LEG2_DTE", 4)))
-        leg2_dte.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "LEG2_DTE", val))
-
-        form.addRow("Leg2 Action:", leg2_action)
-        form.addRow("Leg2 Put/Call:", leg2_put_call)
-        form.addRow("Leg2 Qty:", leg2_qty)
-        form.addRow("Leg2 Target:", leg2_target)
-        form.addRow("Leg2 Target Type:", leg2_target_type)
-        form.addRow("Leg2 DTE:", leg2_dte)
+        else:
+            # Unbekannter/legacy TRADE_TYPE -> Fallback: Leg1/Leg2 frei editierbar.
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 1, "Leg1:", fixed=None, show_target=True,
+                target_default=45, target_type_options=["Delta", "PercentageOTM", "NearestATM"],
+                target_type_default="Delta", dte_default=4,
+            ))
+            form.addRow(self._build_leg_row(
+                idx, tmpl, 2, "Leg2:", fixed=None, show_target=True,
+                target_default=-10, target_type_options=["StrikeOffset_Leg1"],
+                target_type_default="StrikeOffset_Leg1", dte_default=4,
+            ))
 
         return box
-
+        
     def _build_rescan_control_box(self, idx: int, tmpl: dict) -> QGroupBox:
         """__SECTION__RESCAN_CONTROL – eigene Section (früher Teil von
         Execution/Sweep Advanced). MAX_RESCAN_ATTEMPTS wird von jeder Strategie

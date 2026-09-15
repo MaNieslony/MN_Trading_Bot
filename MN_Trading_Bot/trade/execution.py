@@ -301,7 +301,21 @@ def execute_credit_sweep(
                         f"treating as complete to avoid duplicate fills"
                     )
                     fill_price = trade.orderStatus.avgFillPrice
-                    log_trade_callable(trade, fill_price, already_filled)
+
+                    profit_target = None
+                    if profit_target_enabled:
+                        profit_target = place_profit_target_order(
+                            ib=ib,
+                            logger=logger,
+                            combo=combo,
+                            entry_credit=fill_price,
+                            quantity=int(already_filled),
+                            profit_target_pct=profit_target_pct,
+                            profit_target_eth=profit_target_eth,
+                            order_ref=order_ref,
+                        )
+
+                    log_trade_callable(trade, fill_price, already_filled, profit_target=profit_target)
                     return trade
 
                 # Nothing filled — replace
