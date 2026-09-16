@@ -2336,10 +2336,10 @@ class TradingBotUI(QMainWindow):
         self.cfg_chk_exec_time = self._make_toggle_switch(self.bot_mode_data.get("CHECK_EXECUTION_TIME", True))
         self.cfg_chk_market_open = self._make_toggle_switch(self.bot_mode_data.get("CHECK_MARKET_OPEN", True))
 
-        bot_form.addRow("Debug:", self.cfg_debug)
-        bot_form.addRow("Checks:", self.cfg_chk_cond)
-        bot_form.addRow("Zeitprüfung:", self.cfg_chk_exec_time)
-        bot_form.addRow("Marktprüfung:", self.cfg_chk_market_open)
+        bot_form.addRow("Debug Mode:", self.cfg_debug)
+        bot_form.addRow("Entry Condition prüfen:", self.cfg_chk_cond)
+        bot_form.addRow("Prüfe Einstiegszeit:", self.cfg_chk_exec_time)
+        bot_form.addRow("Prüfe Market Open:", self.cfg_chk_market_open)
 
         # Telegram
         tg_box = QGroupBox("💬 Telegram-Benachrichtigungen")

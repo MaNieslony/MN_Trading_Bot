@@ -14,7 +14,6 @@ class IBBroker:
                  is_market_open_callable, setup_error_callback_callable):
         self.ib = ib
         self.logger = logger
-
         self.host = host
         self.port = port
         self.client_id = client_id
@@ -30,6 +29,10 @@ class IBBroker:
         max_internal_attempts = 2
 
         for internal_attempt in range(1, max_internal_attempts + 1):
+            if self._shutdown_requested():
+                self.logger.info("Connect aborted – bot is shutting down")
+                return False
+
             try:
                 if self.ib.isConnected():
                     try:
@@ -69,7 +72,7 @@ class IBBroker:
                     f"⏱️ Connect timed out ({CONNECT_TIMEOUT}s) - "
                     f"internal attempt {internal_attempt}/{max_internal_attempts}: {e}"
                 )
-                if internal_attempt < max_internal_attempts:
+                if internal_attempt < max_internal_attempts and not self._shutdown_requested():
                     time.sleep(3)
                     continue
                 self.logger.error("❌ Failed to connect to IB after internal retries (timeout)")
@@ -91,7 +94,7 @@ class IBBroker:
         """Simple reconnect logic with fixed backoff."""
 
         # ✅ SHUTDOWN-GUARD (entscheidend!)
-        if getattr(self, "bot", None) and getattr(self.bot, "_shutting_down", False):
+        if self._shutdown_requested():
             self.logger.info("Reconnect suppressed – bot is shutting down")
             return False
 
@@ -103,7 +106,7 @@ class IBBroker:
 
         for attempt in range(1, max_retries + 1):
             # ✅ Nochmals absichern
-            if getattr(self.bot, "_shutting_down", False):
+            if self._shutdown_requested():
                 self.logger.info("Reconnect aborted – bot is shutting down")
                 return False
 
@@ -116,7 +119,13 @@ class IBBroker:
             except Exception as e:
                 self.logger.error(f"Reconnect attempt failed: {e}", exc_info=True)
 
-            time.sleep(5)
+            # ✅ Backoff in kleinen Schritten prüfen, damit ein Shutdown
+            # während der Wartezeit nicht bis zu 5s zusätzlich blockiert.
+            for _ in range(50):
+                if self._shutdown_requested():
+                    self.logger.info("Reconnect aborted during backoff – bot is shutting down")
+                    return False
+                time.sleep(0.1)
 
         self.logger.error("❌ Reconnect failed after all attempts")
         return False
@@ -124,8 +133,9 @@ class IBBroker:
     def check_connection_health(self) -> bool:
         """Check if connection is alive and reconnect if needed."""
 
-        # ✅ SHUTDOWN-GUARD
-        if getattr(self, "bot", None) and getattr(self.bot, "_shutting_down", False):
+        # ✅ SHUTDOWN-GUARD (auch wenn shutdown() noch nicht gelaufen ist,
+        # aber running bereits per Ctrl+C auf False gesetzt wurde)
+        if self._shutdown_requested():
             return False
 
         try:
@@ -138,3 +148,18 @@ class IBBroker:
         except Exception as e:
             self.logger.error(f"Connection health check error: {e}", exc_info=True)
             return False
+
+    def _shutdown_requested(self) -> bool:
+        """
+        True, wenn der Bot gerade herunterfährt (Bot._shutting_down) ODER
+        die Run-Loop bereits per Ctrl+C gestoppt wurde (Bot.running=False),
+        auch wenn shutdown() selbst noch nicht gelaufen ist. Ohne diesen
+        zweiten Check können connect()/reconnect() mehrere Minuten
+        weiterlaufen, obwohl der Prozess eigentlich schon beendet werden
+        sollte - mit dem Risiko einer Client-ID-Kollision (Error 326),
+        wenn parallel schon der nächste Schedule startet.
+        """
+        bot = getattr(self, "bot", None)
+        if bot is None:
+            return False
+        return bool(getattr(bot, "_shutting_down", False)) or not getattr(bot, "running", True)

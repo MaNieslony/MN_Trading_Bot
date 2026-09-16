@@ -635,6 +635,14 @@ if __name__ == '__main__':
         print("\nShutdown signal received...")
         if bot is not None:
             bot.running = False
+            # ✅ Sofort setzen (nicht erst in shutdown()), damit
+            # IBBroker.reconnect()/check_connection_health() eine laufende
+            # Reconnect-Schleife SOFORT abbrechen, statt bis zu mehreren
+            # Attempts x Connect-Timeout weiterzulaufen. Ohne das kann der
+            # Prozess trotz Ctrl+C noch minutenlang aktiv bleiben und mit
+            # der nächsten geplanten Bot-Instanz um dieselbe CLIENT_ID
+            # kollidieren (IB Error 326).
+            bot._shutting_down = True
 
     signal.signal(signal.SIGINT, signal_handler)
     if hasattr(signal, "SIGTERM"):
