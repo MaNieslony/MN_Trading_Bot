@@ -29,7 +29,6 @@
     <Compile Include="broker\ib_errors.py" />
     <Compile Include="conditions\entry_conditions.py" />
     <Compile Include="config\loader.py" />
-    <Compile Include="config_trade_ui.py" />
     <Compile Include="market\adapters.py" />
     <Compile Include="market\contracts.py" />
     <Compile Include="market\greeks.py" />

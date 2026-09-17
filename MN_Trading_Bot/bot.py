@@ -444,8 +444,8 @@ class Bot:
     def wait_for_market_open(self):
         return wait_for_market_open_now(check_market_open=self.CHECK_MARKET_OPEN,market_open_time=self.MARKET_OPEN_TIME,market_close_time=self.MARKET_CLOSE_TIME,interruptible_sleep=self.interruptible_sleep,broker=self.broker,logger=self.logger)
 # ============================================================================
-# DEF RUN 
-# ============================================================================
+    # DEF RUN
+    # ============================================================================
     def run(self):
         """
         Main run loop
@@ -465,7 +465,6 @@ class Bot:
 
         connection_failures = 0
         max_connection_failures = 3
-        retry_interval_seconds = 60
 
         try:
             # --------------------------------------------------------
@@ -508,89 +507,15 @@ class Bot:
                         finally:
                             self.trade_in_progress = False
 
-                        if not self.running:
-                            break
-
                         # ------------------------------------------------
-                        # Sleep / scheduling
+                        # Single-Run Policy:
+                        # Nach Abschluss des Trading-Cycles (egal ob gefinisht,
+                        # abgebrochen oder Condition Failed) beendet sich der Bot
+                        # direkt, anstatt in den Schlafzustand zu gehen.
                         # ------------------------------------------------
-                        if self.CHECK_MARKET_OPEN:
-                            et_tz = pytz.timezone("US/Eastern")
-                            now_et = datetime.now(et_tz)
-
-                            next_open = now_et.replace(
-                                hour=self.MARKET_OPEN_TIME.hour,
-                                minute=self.MARKET_OPEN_TIME.minute,
-                                second=0,
-                                microsecond=0
-                            ) + timedelta(days=1)
-
-                            while next_open.weekday() >= 5:
-                                next_open += timedelta(days=1)
-
-                            sleep_seconds = (next_open - now_et).total_seconds()
-
-                            self.logger.info(
-                                f"🛌 Sleeping until next market open "
-                                f"({next_open.strftime('%Y-%m-%d %H:%M')} ET)"
-                            )
-
-                            elapsed = 0
-                            check_interval = 300  # 5 minutes
-
-                            while (
-                                elapsed < sleep_seconds
-                                and self.running
-                                and not getattr(self, "_shutting_down", False)
-                            ):
-                                sleep_time = min(check_interval, sleep_seconds - elapsed)
-
-                                if not self.interruptible_sleep(sleep_time):
-                                    break
-
-                                elapsed += sleep_time
-
-                                if (
-                                    self.running
-                                    and not getattr(self, "_shutting_down", False)
-                                    and not self.broker.check_connection_health()
-                                ):
-                                    self.logger.error(
-                                        "Connection health check failed - attempting reconnect"
-                                    )
-                                    if (
-                                        self.running
-                                        and not getattr(self, "_shutting_down", False)
-                                        and not self.broker.reconnect()
-                                    ):
-                                        self.logger.error(
-                                            "Reconnection failed - breaking daily loop"
-                                        )
-                                        break
-
-                            if not self.running:
-                                break
-
-                        else:
-                            self.logger.info("Market-open scheduling disabled – continuing loop")
-
-                            if not self.interruptible_sleep(retry_interval_seconds):
-                                break
-
-                            if (
-                                self.running
-                                and not getattr(self, "_shutting_down", False)
-                                and not self.broker.check_connection_health()
-                            ):
-                                self.logger.error("Connection health check failed - attempting reconnect")
-
-                                if (
-                                    self.running
-                                    and not getattr(self, "_shutting_down", False)
-                                    and not self.broker.reconnect()
-                                ):
-                                    self.logger.error("Reconnection failed - breaking daily loop")
-                                    break
+                        self.logger.info("Trading cycle finished. Initiating shutdown...")
+                        self.running = False
+                        break
 
                     except Exception as e:
                         if not self.running or getattr(self, "_shutting_down", False):

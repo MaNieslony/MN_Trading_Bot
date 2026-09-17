@@ -1188,8 +1188,26 @@ class TradingBotUI(QMainWindow):
         intraday_layout.addWidget(QLabel("Min %:"))
         intraday_layout.addWidget(self.spin_intraday_pct)
         intraday_layout.addStretch()
+        
+        # VIX Zeile
+        vix_widget = QWidget()
+        vix_layout = QHBoxLayout(vix_widget)
+        vix_layout.setContentsMargins(0, 0, 0, 0)
+        self.chk_vix = self._make_toggle_switch(False)
+        self.spin_vix_min = QDoubleSpinBox()
+        self.spin_vix_min.setRange(0.0, 200.0)
+        self.spin_vix_min.setSingleStep(0.5)
+        self.spin_vix_max = QDoubleSpinBox()
+        self.spin_vix_max.setRange(0.0, 200.0)
+        self.spin_vix_max.setSingleStep(0.5)
+        vix_layout.addWidget(self.chk_vix)
+        vix_layout.addWidget(QLabel("Min:"))
+        vix_layout.addWidget(self.spin_vix_min)
+        vix_layout.addWidget(QLabel("Max:"))
+        vix_layout.addWidget(self.spin_vix_max)
+        vix_layout.addStretch()        
 
-        # Reihenfolge (Drag & Drop) -> bestimmt ORDER für RSI/ABOVE_SMA/INTRADAY_MOVE
+        # Reihenfolge (Drag & Drop) -> bestimmt ORDER für RSI/ABOVE_SMA/INTRADAY_MOVE/VIX
         # (ab 2). WEEKDAY_FILTER ist immer fest ORDER=1 und wird hier nicht gelistet.
         self.cond_order_list = QListWidget()
         self.cond_order_list.setDragDropMode(QAbstractItemView.InternalMove)
@@ -1199,12 +1217,13 @@ class TradingBotUI(QMainWindow):
             "Reihenfolge per Drag & Drop ändern – bestimmt ORDER (ab 2). "
             "WEEKDAY_FILTER läuft unabhängig davon immer zuerst (ORDER 1)."
         )
-        self._populate_condition_order_list({"RSI": 2, "ABOVE_SMA": 3, "INTRADAY_MOVE": 4})
+        self._populate_condition_order_list({"RSI": 2, "ABOVE_SMA": 3, "INTRADAY_MOVE": 4, "VIX": 5})
 
         f_cond.addRow("RSI Condition:", rsi_widget)
         f_cond.addRow("Preis über SMA:", sma_widget)
         f_cond.addRow("Intraday Move:", intraday_widget)
-        f_cond.addRow("Reihenfolge (Drag Drop):", self.cond_order_list)
+        f_cond.addRow("VIX Filter:", vix_widget)
+        f_cond.addRow("Reihenfolge (Drag & Drop):", self.cond_order_list)
 
         # ==========================================
         # 4. Execution Advanced
@@ -1252,11 +1271,12 @@ class TradingBotUI(QMainWindow):
         
     def _populate_condition_order_list(self, order_values: dict):
         """Füllt self.cond_order_list sortiert nach ORDER-Werten
-        (nur RSI/ABOVE_SMA/INTRADAY_MOVE; WEEKDAY_FILTER läuft separat mit ORDER=1)."""
+        (nur RSI/ABOVE_SMA/INTRADAY_MOVE/VIX; WEEKDAY_FILTER läuft separat mit ORDER=1)."""
         labels = {
             "RSI": "RSI",
             "ABOVE_SMA": "Preis über SMA",
             "INTRADAY_MOVE": "Intraday Move",
+            "VIX": "VIX",
         }
         ordered_keys = sorted(order_values.keys(), key=lambda k: order_values[k])
 
@@ -1428,16 +1448,21 @@ class TradingBotUI(QMainWindow):
         intraday_cfg = entry_conditions.get("INTRADAY_MOVE")
         self.chk_intraday.setChecked(intraday_cfg is not None)
         self.spin_intraday_pct.setValue(float((intraday_cfg or {}).get("MIN_PCT", 0.3)))
+        
+        vix_cfg = entry_conditions.get("VIX")
+        self.chk_vix.setChecked(vix_cfg is not None)
+        self.spin_vix_min.setValue(float((vix_cfg or {}).get("MIN", 0.0)))
+        self.spin_vix_max.setValue(float((vix_cfg or {}).get("MAX", 100.0)))        
 
-        # Reihenfolge (ORDER) aus den Conditions übernehmen, Default 2/3/4 wenn
+        # Reihenfolge (ORDER) aus den Conditions übernehmen, Default 2/3/4/5 wenn
         # noch nicht gesetzt. WEEKDAY_FILTER (ORDER=1) läuft separat, nicht gelistet.
-        order_defaults = {"RSI": 2, "ABOVE_SMA": 3, "INTRADAY_MOVE": 4}
+        order_defaults = {"RSI": 2, "ABOVE_SMA": 3, "INTRADAY_MOVE": 4, "VIX": 5}
         order_values = {
             key: int((entry_conditions.get(key) or {}).get("ORDER", order_defaults[key]))
             for key in order_defaults
         }
         self._populate_condition_order_list(order_values)
-
+        
     def add_new_schedule(self):
         new_sched = {
             "NAME": f"NEW-SCHEDULE-{len(self.schedules_data) + 1}",
@@ -1573,10 +1598,19 @@ class TradingBotUI(QMainWindow):
                     entry_conditions["INTRADAY_MOVE"] = {"MIN_PCT": self.spin_intraday_pct.value()}
                 else:
                     entry_conditions.pop("INTRADAY_MOVE", None)
+
+                if self.chk_vix.isChecked():
+                    entry_conditions["VIX"] = {
+                        "MIN": self.spin_vix_min.value(),
+                        "MAX": self.spin_vix_max.value(),
+                    }
+                else:
+                    entry_conditions.pop("VIX", None)
             else:
                 entry_conditions.pop("RSI", None)
                 entry_conditions.pop("ABOVE_SMA", None)
                 entry_conditions.pop("INTRADAY_MOVE", None)
+                entry_conditions.pop("VIX", None)
 
             # Reihenfolge (ORDER) aus der Drag&Drop-Liste übernehmen (ab 2).
             # Nur für Conditions, die tatsächlich aktiv/vorhanden sind.
@@ -1740,6 +1774,10 @@ class TradingBotUI(QMainWindow):
             # Execution/Sweep Advanced), da MAX_RESCAN_ATTEMPTS von jeder
             # Strategie mit Rescan-Loop genutzt wird, nicht IC-spezifisch.
             form.addRow(self._build_rescan_control_box(idx, tmpl))
+            
+            # __SECTION__PROFIT_TARGET – optional, gilt für ALLE TradeTypes
+            # (checkable Box: PROFIT_TARGET_ENABLED = checked-Zustand).
+            form.addRow(self._build_profit_target_box(idx, tmpl))            
 
             # ==========================================================
             # NUR für Iron-Condor-Templates (z.B. RUT-IC-DELTA-SYM):
@@ -1748,6 +1786,17 @@ class TradingBotUI(QMainWindow):
             if self._is_iron_condor_template(tmpl):
                 form.addRow(self._build_iv_rank_steering_box(idx, tmpl))
                 form.addRow(self._build_spread_width_box(idx, tmpl))
+                
+            # ==========================================================
+            # NUR für NDX-Templates (SYMBOL=NDX oder Name beginnt mit "NDX",
+            # z.B. NDX-50BPS): __SECTION__DELTA_STEERING +
+            # __SECTION__SHORT_LEG_STEERING + __SECTION__STRIKE_WINDOW/
+            # __SECTION__MAX_STRIKE_SCAN
+            # ==========================================================
+            if self._is_ndx_like_template(tmpl):
+                form.addRow(self._build_delta_steering_box(idx, tmpl))
+                form.addRow(self._build_short_leg_steering_box(idx, tmpl))
+                form.addRow(self._build_strike_window_box(idx, tmpl))
 
             tab_widget.setWidget(content)
             self.template_tabs.addTab(tab_widget, name)
@@ -2019,6 +2068,109 @@ class TradingBotUI(QMainWindow):
         form.addRow("Max Rescan Attempts:", max_rescans)
 
         return box
+        
+    def _is_ndx_like_template(self, tmpl: dict) -> bool:
+        """Analog zu config_trade_ui.py's is_ndx_like(): NDX-Steering-Felder
+        gelten für Templates mit SYMBOL=NDX oder TEMPLATENAME beginnend mit 'NDX'."""
+        return (tmpl.get("SYMBOL") == "NDX") or ((tmpl.get("TEMPLATENAME") or "").startswith("NDX"))
+
+    def _build_delta_steering_box(self, idx: int, tmpl: dict) -> QGroupBox:
+        """__SECTION__DELTA_STEERING – nur für NDX-Templates (z.B. NDX-50BPS)."""
+        box = QGroupBox("NDX Delta Steering")
+        form = QFormLayout(box)
+
+        offset = QDoubleSpinBox()
+        offset.setRange(0.0, 5.0)
+        offset.setSingleStep(0.1)
+        offset.setDecimals(2)
+        offset.setValue(float(tmpl.get("DELTA_TARGET_OFFSET", 0.2)))
+        offset.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "DELTA_TARGET_OFFSET", val))
+
+        max_abs = QDoubleSpinBox()
+        max_abs.setRange(0.5, 20.0)
+        max_abs.setSingleStep(0.5)
+        max_abs.setDecimals(2)
+        max_abs.setValue(float(tmpl.get("DELTA_MAX_ABS", 5.0)))
+        max_abs.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "DELTA_MAX_ABS", val))
+
+        expansion = QDoubleSpinBox()
+        expansion.setRange(0.0, 10.0)
+        expansion.setSingleStep(0.1)
+        expansion.setDecimals(2)
+        expansion.setValue(float(tmpl.get("DELTA_RESCAN_EXPANSION", 0.5)))
+        expansion.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "DELTA_RESCAN_EXPANSION", val))
+
+        form.addRow("Delta Target Offset:", offset)
+        form.addRow("Delta Max Abs:", max_abs)
+        form.addRow("Delta Rescan Expansion:", expansion)
+
+        return box
+
+    def _build_short_leg_steering_box(self, idx: int, tmpl: dict) -> QGroupBox:
+        """__SECTION__SHORT_LEG_STEERING – nur für NDX-Templates."""
+        box = QGroupBox("Short-Leg Mid Steering")
+        form = QFormLayout(box)
+
+        mid_min = QDoubleSpinBox()
+        mid_min.setRange(0.0, 50.0)
+        mid_min.setSingleStep(0.05)
+        mid_min.setDecimals(2)
+        mid_min.setValue(float(tmpl.get("SHORT_LEG_MID_MIN", 1.0)))
+        mid_min.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SHORT_LEG_MID_MIN", val))
+
+        mid_max = QDoubleSpinBox()
+        mid_max.setRange(0.0, 50.0)
+        mid_max.setSingleStep(0.05)
+        mid_max.setDecimals(2)
+        mid_max.setValue(float(tmpl.get("SHORT_LEG_MID_MAX", 2.5)))
+        mid_max.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SHORT_LEG_MID_MAX", val))
+
+        mid_expansion = QDoubleSpinBox()
+        mid_expansion.setRange(0.0, 10.0)
+        mid_expansion.setSingleStep(0.05)
+        mid_expansion.setDecimals(2)
+        mid_expansion.setValue(float(tmpl.get("SHORT_LEG_MID_EXPANSION", 0.25)))
+        mid_expansion.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SHORT_LEG_MID_EXPANSION", val))
+
+        form.addRow("Short Leg Mid Min ($):", mid_min)
+        form.addRow("Short Leg Mid Max ($):", mid_max)
+        form.addRow("Short Leg Mid Expansion ($):", mid_expansion)
+
+        return box
+
+    def _build_strike_window_box(self, idx: int, tmpl: dict) -> QGroupBox:
+        """__SECTION__STRIKE_WINDOW + __SECTION__MAX_STRIKE_SCAN – nur für
+        NDX-Templates."""
+        box = QGroupBox("Strike Window (NDX)")
+        form = QFormLayout(box)
+
+        strike_step = QSpinBox()
+        strike_step.setRange(1, 100)
+        strike_step.setValue(int(tmpl.get("STRIKE_STEP", 10)))
+        strike_step.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "STRIKE_STEP", val))
+
+        upper_offset = QSpinBox()
+        upper_offset.setRange(0, 5000)
+        upper_offset.setValue(int(tmpl.get("STRIKE_UPPER_OFFSET", 225)))
+        upper_offset.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "STRIKE_UPPER_OFFSET", val))
+
+        lower_offset = QSpinBox()
+        lower_offset.setRange(0, 10000)
+        lower_offset.setValue(int(tmpl.get("STRIKE_LOWER_OFFSET", 525)))
+        lower_offset.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "STRIKE_LOWER_OFFSET", val))
+
+        max_scan = QSpinBox()
+        max_scan.setRange(1, 500)
+        max_scan.setValue(int(tmpl.get("MAX_STRIKE_SCAN", 30)))
+        max_scan.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MAX_STRIKE_SCAN", val))
+
+        form.addRow("Strike Step:", strike_step)
+        form.addRow("Strike Upper Offset:", upper_offset)
+        form.addRow("Strike Lower Offset:", lower_offset)
+        form.addRow("Max Strike Scan:", max_scan)
+
+        return box        
+        
 
     def _is_iron_condor_template(self, tmpl: dict) -> bool:
         """True für Templates mit TRADE_TYPE IRON_CONDOR/RUT_IRON_CONDOR
@@ -2169,7 +2321,43 @@ class TradingBotUI(QMainWindow):
         hint.setWordWrap(True)
         form.addRow(hint)
 
-        return box            
+        return box
+        
+    def _build_profit_target_box(self, idx: int, tmpl: dict) -> QGroupBox:
+        """__SECTION__PROFIT_TARGET – optional, gilt für ALLE TradeTypes.
+        Checkable GroupBox: der Checked-Zustand IST PROFIT_TARGET_ENABLED,
+        analog zum Streamlit-Toggle in config_trade_ui.py."""
+        box = QGroupBox("Profit Target")
+        box.setCheckable(True)
+
+        enabled = bool(tmpl.get("PROFIT_TARGET_ENABLED", False))
+        box.setChecked(enabled)
+        self.update_template_val(idx, "PROFIT_TARGET_ENABLED", enabled)
+        box.toggled.connect(lambda checked, i=idx: self.update_template_val(i, "PROFIT_TARGET_ENABLED", checked))
+
+        form = QFormLayout(box)
+
+        pct_spin = QSpinBox()
+        pct_spin.setRange(1, 100)
+        pct_spin.setSuffix(" %")
+        pct_val = int(tmpl.get("PROFIT_TARGET_PCT", 50))
+        pct_spin.setValue(pct_val)
+        self.update_template_val(idx, "PROFIT_TARGET_PCT", pct_val)
+        pct_spin.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "PROFIT_TARGET_PCT", val))
+
+        eth_check = self._make_toggle_switch(
+            bool(tmpl.get("PROFIT_TARGET_ETH", False)),
+            on_text="ETH aktiv", off_text="ETH inaktiv",
+        )
+        self.update_template_val(idx, "PROFIT_TARGET_ETH", eth_check.isChecked())
+        eth_check.stateChanged.connect(
+            lambda _s, i=idx, c=eth_check: self.update_template_val(i, "PROFIT_TARGET_ETH", c.isChecked())
+        )
+
+        form.addRow("Profit Target (%):", pct_spin)
+        form.addRow("Extended Trading Hours:", eth_check)
+
+        return box
 
     def update_template_val(self, index, key, val):
         if index < len(self.templates_data):
