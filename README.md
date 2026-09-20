@@ -28,11 +28,11 @@ Ein konfigurdatei-gestützter **Optionshandel-Bot** für **Interactive Brokers**
 
 ### Systemanforderungen
 - **Python 3.13.14**
-- **Interactive Brokers Gateway** oder **Trader Workstation (TWS)** läuft lokal
-- Windows, macOS oder Linux (macOS/Linux nicht getestet)
+- **Trader Workstation (TWS)** läuft lokal
+- Windows
 
 ### Interactive Brokers Konfiguration
-1. IB Gateway/TWS muss laufen (~IP: `127.0.0.1`)
+1. IB TWS muss laufen (~IP: `127.0.0.1`)
 2. Port `7497` (Live) oder `7498` (Paper Trading) - konfigurierbar
 3. API-Zugang aktiviert in IB-Einstellungen
 4. Paper oder Live Konto verfügbar

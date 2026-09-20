@@ -1,0 +1,75 @@
+# ui/manual/_bull_put.txt
+###Bull Put Spread (TRADE_TYPE = BULL_PUT)
+
+##LEG1_TARGET_TYPE
+>Aktuell wird ausschließlich "Delta" unterstützt (siehe tradetype/bull_put.py).
+Andere Werte führen dazu, dass kein Short-Strike gefunden wird.
+
+##LEG1_TARGET
+>Ziel-Delta für den Short Put. Werte > 1 werden als Delta-Punkte interpretiert
+(z.B. 45 -> 0,45), Werte <= 1 direkt als Delta (0,45). Der Bot wählt aus dem
+Delta-Cache den Strike, dessen |Delta| dem Zielwert am nächsten liegt – KEIN
+Fenster, sondern reine Nächster-Nachbar-Suche.
+
+##LEG1_DTE
+>Days to Expiration. Bei Werten < 30 wird die Expiry als heute + LEG1_DTE
+Kalendertage berechnet. Ab 30 sucht der Bot stattdessen die beste verfügbare
+Expiry im Fenster [Ziel-DTE-10, Ziel-DTE+10] (siehe cycle_steps.select_expiry).
+Bestimmt die Expiry für BEIDE Legs.
+
+##LEG2_TARGET_TYPE
+>Muss "StrikeOffset_Leg1" sein – der Long-Strike wird relativ zum Short-Strike
+(LEG1) berechnet. Andere Werte werden nicht unterstützt.
+
+##LEG2_TARGET
+>Abstand des Long-Put-Strikes zum Short-Put-Strike (LEG1) in Punkten, negativ
+= darunter. Ergibt zusammen mit LEG1 die Spread-Breite (z.B. -10 = 10 Punkte
+breiter Spread).
+
+##LEG2_DTE
+>Wird vom Bot aktuell NICHT ausgewertet – die Expiry wird für beide Legs
+einheitlich aus LEG1_DTE bestimmt. Feld ist nur aus Schema-Kompatibilität
+vorhanden und hat keinen Effekt auf den Trade.
+
+###NDX Delta/Strike Steering (nur SYMBOL=NDX bzw. TEMPLATENAME beginnt mit "NDX")
+
+##DELTA_TARGET_OFFSET
+>Abstand (in Delta-Punkten, z.B. 0.2 = 0,2) zwischen Ziel-Delta und der
+unteren Delta-Grenze. delta_min = target - offset, bleibt über alle Rescans
+fix.
+
+##DELTA_MAX_ABS
+>Absolute Obergrenze (in Delta-Punkten) für die obere Delta-Grenze, unabhängig
+davon, wie weit die Rescan-Expansion sie theoretisch treiben würde.
+
+##DELTA_RESCAN_EXPANSION
+>Erweiterung der oberen Delta-Grenze pro Rescan-Durchlauf (in Delta-Punkten).
+rescan=0 -> Ziel-Delta, rescan=1 -> +1x Expansion, rescan=2 -> +2x usw., bis
+DELTA_MAX_ABS erreicht ist.
+
+##SHORT_LEG_MID_MIN
+>Untere Grenze für den Mid-Preis des Short-Legs in $. Kandidaten außerhalb
+dieses Fensters werden verworfen.
+
+##SHORT_LEG_MID_MAX
+>Obere Grenze für den Mid-Preis des Short-Legs in $. Erweitert sich pro Rescan
+um SHORT_LEG_MID_EXPANSION; ab Rescan 3 zusätzlich pauschal um 40%.
+
+##SHORT_LEG_MID_EXPANSION
+>Erweiterung von SHORT_LEG_MID_MAX pro Rescan-Durchlauf in $.
+
+##STRIKE_UPPER_OFFSET
+>Oberes Ende des Strike-Suchfensters: underlying_price - STRIKE_UPPER_OFFSET.
+Kleinerer Wert = näher am Geld.
+
+##STRIKE_LOWER_OFFSET
+>Unteres Ende des Strike-Suchfensters: underlying_price - STRIKE_LOWER_OFFSET.
+Größerer Wert = weiter aus dem Geld.
+
+##MAX_STRIKE_SCAN
+>Maximale Anzahl an Strike-Kandidaten, die pro Scan-Versuch ausgewertet werden
+(Ticker-Requests werden entsprechend limitiert).
+
+##STRIKE_STEP
+>Erwarteter Strike-Abstand des Underlyings (z.B. 10 Punkte bei NDX). Nur
+Strikes, die ein Vielfaches davon sind, werden als Kandidaten zugelassen.

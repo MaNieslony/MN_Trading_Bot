@@ -1,0 +1,41 @@
+# ui/manual/_pbw.txt
+###Put Broken Wing (TRADE_TYPE = PBW)
+
+##LEG1_TARGET_TYPE
+>Bestimmt, wie der Body-Strike (Short, 2x) gewählt wird: "NearestATM" (größter
+Strike <= Underlying-Kurs) oder "PercentageOTM" (Strike anhand prozentualem
+Abstand zum Kurs, siehe LEG1_TARGET).
+
+##LEG1_TARGET
+>Nur bei LEG1_TARGET_TYPE = "PercentageOTM" wirksam: Ziel-Prozentsatz relativ
+zum Underlying-Kurs, negativ = unterhalb (OTM Put). Bei "NearestATM" wird
+dieser Wert ignoriert.
+
+##LEG1_DTE
+>Days to Expiration, bestimmt die Expiry für ALLE drei Legs (siehe
+cycle_steps.select_expiry, nutzt ausschließlich LEG1_DTE).
+
+##LEG2_TARGET_TYPE
+>Muss "StrikeOffset_Leg1" sein – der untere Wing (LEG2) wird relativ zum
+Body-Strike (LEG1) berechnet. Andere Werte lässt der Bot nicht zu.
+
+##LEG2_TARGET
+>Abstand des unteren Wings (Long Put, LEG2) zum Body-Strike (LEG1) in Punkten,
+negativ = darunter. |LEG2_TARGET| ≠ LEG3_TARGET ergibt den "Broken Wing"
+(asymmetrisches Risiko/Reward je Seite).
+
+##LEG2_DTE
+>Wird vom Bot aktuell NICHT ausgewertet – die Expiry wird für alle drei Legs
+einheitlich aus LEG1_DTE bestimmt. Nur aus Schema-Kompatibilität vorhanden.
+
+##LEG3_TARGET_TYPE
+>Muss "StrikeOffset_Leg1" sein – der obere Wing (LEG3) wird relativ zum
+Body-Strike (LEG1) berechnet. Andere Werte lässt der Bot nicht zu.
+
+##LEG3_TARGET
+>Abstand des oberen Wings (Long Put, LEG3) zum Body-Strike (LEG1) in Punkten,
+positiv = darüber.
+
+##LEG3_DTE
+>Wird vom Bot aktuell NICHT ausgewertet – die Expiry wird für alle drei Legs
+einheitlich aus LEG1_DTE bestimmt. Nur aus Schema-Kompatibilität vorhanden.

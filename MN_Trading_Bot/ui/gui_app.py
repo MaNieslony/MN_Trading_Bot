@@ -537,6 +537,7 @@ import sys
 import ctypes
 import os
 import json
+import html
 import socket
 import struct
 import random
@@ -584,7 +585,106 @@ DAY_ABBR_TO_FULL = {
     "MON": "MONDAY", "TUE": "TUESDAY", "WED": "WEDNESDAY",
     "THU": "THURSDAY", "FRI": "FRIDAY", "SAT": "SATURDAY", "SUN": "SUNDAY",
 }
+MANUAL_DIR = Path(__file__).parent / "manual"
 
+
+def _parse_manual_file(path: Path) -> dict:
+    """
+    Parst eine Manual-TXT-Datei zu einem Dict {CONFIG_KEY: Tooltip-Text}.
+
+    Format:
+        ###Titel                      (nur Gliederung, wird ignoriert)
+
+        ##KEY: Defaultwert            (Defaultwert ist nur Doku, wird ignoriert)
+        >Beschreibungstext, kann über mehrere Zeilen gehen.
+        Weitere Zeilen ohne '>' gehören noch zum selben Eintrag,
+        bis die nächste '##'/'###'-Zeile oder das Dateiende kommt.
+    """
+    if not path.exists():
+        return {}
+
+    tooltips: dict = {}
+    current_key = None
+    current_lines: list = []
+
+    def _flush():
+        if current_key and current_lines:
+            tooltips[current_key] = " ".join(
+                l.strip() for l in current_lines if l.strip()
+            )
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for raw_line in f:
+                stripped = raw_line.strip()
+
+                if stripped.startswith("###"):
+                    _flush()
+                    current_key, current_lines = None, []
+                    continue
+
+                if stripped.startswith("##"):
+                    _flush()
+                    header = stripped.lstrip("#").strip()
+                    current_key = header.split(":", 1)[0].strip()
+                    current_lines = []
+                    continue
+
+                if current_key is None or not stripped:
+                    continue
+
+                current_lines.append(
+                    stripped[1:].strip() if stripped.startswith(">") else stripped
+                )
+
+        _flush()
+
+    except Exception as e:
+        print(f"⚠️ Manual-Datei konnte nicht gelesen werden ({path}): {e}")
+        return {}
+
+    return tooltips
+
+
+_TRADE_TYPE_MANUAL_FILES = {
+    "BULL_PUT": "_bull_put.txt",
+    "PBW": "_pbw.txt",
+    "IRON_CONDOR": "_iron_condor.txt",
+}
+
+
+def load_manual_tooltips(template_name: str, trade_type: str = "") -> dict:
+    """
+    Lädt Tooltip-Texte dreistufig (spätere Stufen überschreiben/ergänzen
+    gleiche Keys der vorherigen):
+    1. manual/_common.txt        – Felder, die für JEDEN TRADE_TYPE gleich sind
+    2. manual/_<trade_type>.txt  – Felder, die für alle Templates dieses
+                                    TRADE_TYPE gleich sind (z.B. LEG1_TARGET
+                                    bei jedem Bull-Put-Template)
+    3. manual/<TEMPLATENAME>.txt – Overrides/Ergänzungen für genau dieses
+                                    eine Template (z.B. NDX-50BPS-Steering)
+    Fehlt eine Datei oder ein Key, bleibt das Feld einfach ohne Tooltip.
+    """
+    tooltips = _parse_manual_file(MANUAL_DIR / "_common.txt")
+
+    trade_type_file = _TRADE_TYPE_MANUAL_FILES.get((trade_type or "").strip().upper())
+    if trade_type_file:
+        tooltips.update(_parse_manual_file(MANUAL_DIR / trade_type_file))
+
+    if template_name:
+        tooltips.update(_parse_manual_file(MANUAL_DIR / f"{template_name}.txt"))
+
+    return tooltips
+
+
+def _apply_tooltip(widget, tooltips: dict, key: str) -> None:
+    """Setzt ein (wortumbrechendes) Tooltip nur, wenn für 'key' ein Eintrag
+    in den geladenen Manual-Daten existiert."""
+    text = (tooltips or {}).get(key)
+    if not text:
+        return
+    escaped = html.escape(text)
+    widget.setToolTip(f"<html><body style='max-width:580px'>{escaped}</body></html>")
 
 # Hilfsfunktionen zum Laden/Speichern von JSON
 def load_json(filepath, default_content):
@@ -616,19 +716,12 @@ class TradingBotUI(QMainWindow):
             if icon_path.exists():
                 self.setWindowIcon(QIcon(str(icon_path)))
 
-            # Aktueller Theme-Status (True = Dark, False = Light) – gepflegt von
-            # toggle_theme(), genutzt für theme-abhängige Akzentfarben (z.B. in
-            # refresh_today_preview()). Default passt zum direkt gesetzten LIGHT_THEME unten.
+            # Aktueller Theme-Status (True = Dark, False = Light) – gepflegt von toggle_theme
             self.is_dark_theme = False
 
-            # Bugfix: wurde bisher nirgends initialisiert, aber in
-            # check_telegram_alert_on_disconnect() gelesen -> AttributeError beim
-            # ersten TWS-Disconnect (z.B. direkt beim Start ohne laufendes TWS).
             self.last_telegram_alert_time = None
 
-            # Letzter bekannter TWS-Verbindungsstatus (None = noch nicht geprüft).
-            # Wird gebraucht, um das Status-Badge nach einem Theme-Wechsel korrekt
-            # neu einzufärben (siehe toggle_theme() / _style_status_badge()).
+            # Letzter bekannter TWS-Verbindungsstatus 
             self._tws_connected = None
 
             # 1. Konfigurationen laden
@@ -644,6 +737,7 @@ class TradingBotUI(QMainWindow):
             self.status_timer = QTimer(self)
             self.status_timer.timeout.connect(self.check_tws_status)
             self.status_timer.timeout.connect(self.update_service_status)
+            self.status_timer.timeout.connect(self.refresh_today_preview)
             self.status_timer.start(5000)
 
             # 5. Erstprüfung nach UI-Aufbau
@@ -1673,6 +1767,7 @@ class TradingBotUI(QMainWindow):
 
         for idx, tmpl in enumerate(templates):
             name = tmpl.get("TEMPLATENAME", tmpl.get("TRADE_TYPE", f"Template {idx+1}"))
+            tooltips = load_manual_tooltips(tmpl.get("TEMPLATENAME", ""), self._normalize_trade_type(tmpl))
             tab_widget = QScrollArea()
             tab_widget.setWidgetResizable(True)
 
@@ -1696,6 +1791,7 @@ class TradingBotUI(QMainWindow):
             # im editierbaren Feld) neu aufbauen, damit Leg3/Leg4 sofort korrekt
             # erscheinen/verschwinden.
             t_type.activated.connect(lambda _idx: self._rebuild_template_tabs_keep_index())
+            _apply_tooltip(t_type, tooltips, "TRADE_TYPE")
 
             symbol = QComboBox()
             symbol.setEditable(True)
@@ -1705,11 +1801,13 @@ class TradingBotUI(QMainWindow):
                 symbol.addItem(current_symbol)
             symbol.setCurrentText(current_symbol)
             symbol.currentTextChanged.connect(lambda text, i=idx: self.update_template_val(i, "SYMBOL", text))
+            _apply_tooltip(symbol, tooltips, "SYMBOL")
 
             commission = QDoubleSpinBox()
             commission.setRange(0, 50)
             commission.setValue(float(tmpl.get("COMMISSION_PER_CONTRACT", 1.50)))
             commission.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "COMMISSION_PER_CONTRACT", val))
+            _apply_tooltip(commission, tooltips, "COMMISSION_PER_CONTRACT")
 
             form.addRow("Template Name:", t_name)
             form.addRow("Trade Type:", t_type)
@@ -1719,7 +1817,7 @@ class TradingBotUI(QMainWindow):
             # __SECTION__LEG_DEFINITION – direkt nach Commission, gilt für alle
             # TradeTypes (Bull Put nutzt genau Leg1/Leg2, PBW/Iron Condor bauen
             # mit LEG3/LEG4 – aktuell nicht im GUI editierbar – darauf auf).
-            form.addRow(self._build_leg_definition_box(idx, tmpl))
+            form.addRow(self._build_leg_definition_box(idx, tmpl, tooltips))
 
             advanced_box = QGroupBox("Execution / Sweep Advanced")
             advanced_box.setCheckable(True)
@@ -1730,22 +1828,26 @@ class TradingBotUI(QMainWindow):
             min_sweep.setRange(-1000, 1000)
             min_sweep.setValue(float(tmpl.get("MIN_SWEEP_PRICE", -5.0)))
             min_sweep.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MIN_SWEEP_PRICE", val))
+            _apply_tooltip(min_sweep, tooltips, "MIN_SWEEP_PRICE")
 
             max_sweep = QDoubleSpinBox()
             max_sweep.setRange(-1000, 1000)
             max_sweep.setValue(float(tmpl.get("MAX_SWEEP_PRICE", -1.0)))
             max_sweep.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MAX_SWEEP_PRICE", val))
+            _apply_tooltip(max_sweep, tooltips, "MAX_SWEEP_PRICE")
 
             max_attempts = QSpinBox()
             max_attempts.setRange(1, 500)
             max_attempts.setValue(int(tmpl.get("MAX_SWEEP_ATTEMPTS", 40)))
             max_attempts.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MAX_SWEEP_ATTEMPTS", val))
+            _apply_tooltip(max_attempts, tooltips, "MAX_SWEEP_ATTEMPTS")
 
             wait_seconds = QSpinBox()
             wait_seconds.setRange(1, 120)
             wait_seconds.setSuffix(" s")
             wait_seconds.setValue(int(tmpl.get("SWEEP_WAIT_SECONDS", 5)))
             wait_seconds.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SWEEP_WAIT_SECONDS", val))
+            _apply_tooltip(wait_seconds, tooltips, "SWEEP_WAIT_SECONDS")
 
             sweep_step = QDoubleSpinBox()
             sweep_step.setRange(0.01, 5.0)
@@ -1753,6 +1855,7 @@ class TradingBotUI(QMainWindow):
             sweep_step.setDecimals(2)
             sweep_step.setValue(float(tmpl.get("SWEEP_STEP", 0.05)))
             sweep_step.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SWEEP_STEP", val))
+            _apply_tooltip(sweep_step, tooltips, "SWEEP_STEP")
 
             start_quantile = QDoubleSpinBox()
             start_quantile.setRange(0.0, 1.0)
@@ -1767,26 +1870,27 @@ class TradingBotUI(QMainWindow):
             advanced_form.addRow("Sweep Wait Seconds:", wait_seconds)
             advanced_form.addRow("Sweep Step ($):", sweep_step)
             advanced_form.addRow("Start Sweep Quantile:", start_quantile)
+            _apply_tooltip(start_quantile, tooltips, "START_SWEEP_QUANTILE")
 
             form.addRow(advanced_box)
 
             # __SECTION__RESCAN_CONTROL – eigene Section (statt Teil von
             # Execution/Sweep Advanced), da MAX_RESCAN_ATTEMPTS von jeder
             # Strategie mit Rescan-Loop genutzt wird, nicht IC-spezifisch.
-            form.addRow(self._build_rescan_control_box(idx, tmpl))
-            
+            form.addRow(self._build_rescan_control_box(idx, tmpl, tooltips))
+
             # __SECTION__PROFIT_TARGET – optional, gilt für ALLE TradeTypes
             # (checkable Box: PROFIT_TARGET_ENABLED = checked-Zustand).
-            form.addRow(self._build_profit_target_box(idx, tmpl))            
+            form.addRow(self._build_profit_target_box(idx, tmpl, tooltips))
 
             # ==========================================================
             # NUR für Iron-Condor-Templates (z.B. RUT-IC-DELTA-SYM):
             # __SECTION__IV_RANK_STEERING + __SECTION__SPREAD_WIDTH
             # ==========================================================
             if self._is_iron_condor_template(tmpl):
-                form.addRow(self._build_iv_rank_steering_box(idx, tmpl))
-                form.addRow(self._build_spread_width_box(idx, tmpl))
-                
+                form.addRow(self._build_iv_rank_steering_box(idx, tmpl, tooltips))
+                form.addRow(self._build_spread_width_box(idx, tmpl, tooltips))
+
             # ==========================================================
             # NUR für NDX-Templates (SYMBOL=NDX oder Name beginnt mit "NDX",
             # z.B. NDX-50BPS): __SECTION__DELTA_STEERING +
@@ -1794,14 +1898,14 @@ class TradingBotUI(QMainWindow):
             # __SECTION__MAX_STRIKE_SCAN
             # ==========================================================
             if self._is_ndx_like_template(tmpl):
-                form.addRow(self._build_delta_steering_box(idx, tmpl))
-                form.addRow(self._build_short_leg_steering_box(idx, tmpl))
-                form.addRow(self._build_strike_window_box(idx, tmpl))
+                form.addRow(self._build_delta_steering_box(idx, tmpl, tooltips))
+                form.addRow(self._build_short_leg_steering_box(idx, tmpl, tooltips))
+                form.addRow(self._build_strike_window_box(idx, tmpl, tooltips))
 
             tab_widget.setWidget(content)
             self.template_tabs.addTab(tab_widget, name)
-            
-        self._apply_plus_minus_symbols()    
+
+        self._apply_plus_minus_symbols()
 
     def _normalize_trade_type(self, tmpl: dict) -> str:
         """Analog zu bot.py._create_trade_type: normalisiert TRADE_TYPE-Varianten
@@ -1835,6 +1939,7 @@ class TradingBotUI(QMainWindow):
         target_type_options=None,
         target_type_default: str = "",
         dte_default: int = 4,
+        tooltips: dict = None,
     ) -> QWidget:
         """Baut eine komplette, kompakte Ein-Zeilen-Darstellung für ein Leg –
         INKLUSIVE des "Leg1:"-Labels in derselben QHBoxLayout-Zeile.
@@ -1874,6 +1979,7 @@ class TradingBotUI(QMainWindow):
 
             fixed_lbl = QLabel(f"<b>{action_val} {put_call_val}</b> \u00d7 {qty_val}  <i>(fest)</i>")
             fixed_lbl.setMinimumWidth(120)
+            _apply_tooltip(fixed_lbl, tooltips, prefix + "ACTION")
             row_layout.addWidget(fixed_lbl, 0, Qt.AlignVCenter)
         else:
             action_combo = QComboBox()
@@ -1887,6 +1993,7 @@ class TradingBotUI(QMainWindow):
             action_combo.currentTextChanged.connect(
                 lambda text, i=idx, k=prefix + "ACTION": self.update_template_val(i, k, text)
             )
+            _apply_tooltip(action_combo, tooltips, prefix + "ACTION")
 
             put_call_combo = QComboBox()
             put_call_combo.setMinimumWidth(60)
@@ -1899,6 +2006,7 @@ class TradingBotUI(QMainWindow):
             put_call_combo.currentTextChanged.connect(
                 lambda text, i=idx, k=prefix + "PUT_CALL": self.update_template_val(i, k, text)
             )
+            _apply_tooltip(put_call_combo, tooltips, prefix + "PUT_CALL")
 
             qty_val = int(tmpl.get(prefix + "QTY", 1))
             qty_spin = QSpinBox()
@@ -1909,6 +2017,7 @@ class TradingBotUI(QMainWindow):
             qty_spin.valueChanged.connect(
                 lambda val, i=idx, k=prefix + "QTY": self.update_template_val(i, k, val)
             )
+            _apply_tooltip(qty_spin, tooltips, prefix + "QTY")
 
             row_layout.addWidget(action_combo, 0, Qt.AlignVCenter)
             row_layout.addWidget(put_call_combo, 0, Qt.AlignVCenter)
@@ -1926,6 +2035,7 @@ class TradingBotUI(QMainWindow):
             target_spin.valueChanged.connect(
                 lambda val, i=idx, k=target_key: self.update_template_val(i, k, val)
             )
+            _apply_tooltip(target_spin, tooltips, target_key)
 
             type_key = prefix + "TARGET_TYPE"
             type_combo = QComboBox()
@@ -1940,6 +2050,7 @@ class TradingBotUI(QMainWindow):
             type_combo.currentTextChanged.connect(
                 lambda text, i=idx, k=type_key: self.update_template_val(i, k, text)
             )
+            _apply_tooltip(type_combo, tooltips, type_key)
 
             dte_key = prefix + "DTE"
             dte_val = int(tmpl.get(dte_key, dte_default))
@@ -1951,6 +2062,7 @@ class TradingBotUI(QMainWindow):
             dte_spin.valueChanged.connect(
                 lambda val, i=idx, k=dte_key: self.update_template_val(i, k, val)
             )
+            _apply_tooltip(dte_spin, tooltips, dte_key)
 
             row_layout.addWidget(QLabel("Target:"), 0, Qt.AlignVCenter)
             row_layout.addWidget(target_spin, 0, Qt.AlignVCenter)
@@ -1971,7 +2083,7 @@ class TradingBotUI(QMainWindow):
         lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         return lbl        
 
-    def _build_leg_definition_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_leg_definition_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__LEG_DEFINITION – kompakt (1 Zeile pro Leg).
         Bewusst NICHT checkable (anders als "Execution / Sweep Advanced"):
         eine checkable GroupBox graut ihren Inhalt im unchecked-Zustand aus,
@@ -1995,29 +2107,29 @@ class TradingBotUI(QMainWindow):
             form.addRow(self._build_leg_row(
                 idx, tmpl, 1, "Leg1 (Short Put):", fixed=("SELL", "P", 1), show_target=True,
                 target_default=45, target_type_options=["Delta"],
-                target_type_default="Delta", dte_default=4,
+                target_type_default="Delta", dte_default=4, tooltips=tooltips,
             ))
             form.addRow(self._build_leg_row(
                 idx, tmpl, 2, "Leg2 (Long Put):", fixed=("BUY", "P", 1), show_target=True,
                 target_default=-10, target_type_options=["StrikeOffset_Leg1"],
-                target_type_default="StrikeOffset_Leg1", dte_default=4,
+                target_type_default="StrikeOffset_Leg1", dte_default=4, tooltips=tooltips,
             ))
 
         elif trade_type == "PBW":
             form.addRow(self._build_leg_row(
                 idx, tmpl, 1, "Leg1 (Body):", fixed=("SELL", "P", 2), show_target=True,
                 target_default=0, target_type_options=["NearestATM", "PercentageOTM"],
-                target_type_default="NearestATM", dte_default=4,
+                target_type_default="NearestATM", dte_default=4, tooltips=tooltips,
             ))
             form.addRow(self._build_leg_row(
                 idx, tmpl, 2, "Leg2 (Lower Wing):", fixed=("BUY", "P", 1), show_target=True,
                 target_default=-30, target_type_options=["StrikeOffset_Leg1"],
-                target_type_default="StrikeOffset_Leg1", dte_default=4,
+                target_type_default="StrikeOffset_Leg1", dte_default=4, tooltips=tooltips,
             ))
             form.addRow(self._build_leg_row(
                 idx, tmpl, 3, "Leg3 (Upper Wing):", fixed=("BUY", "P", 1), show_target=True,
                 target_default=30, target_type_options=["StrikeOffset_Leg1"],
-                target_type_default="StrikeOffset_Leg1", dte_default=4,
+                target_type_default="StrikeOffset_Leg1", dte_default=4, tooltips=tooltips,
             ))
 
         elif trade_type == "IRON_CONDOR":
@@ -2027,15 +2139,19 @@ class TradingBotUI(QMainWindow):
             # bewusst ausgeblendet, um die Sektion kompakt zu halten.
             form.addRow(self._build_leg_row(
                 idx, tmpl, 1, "Leg1 (Short Put):", fixed=("SELL", "P", 1), show_target=False,
+                tooltips=tooltips,
             ))
             form.addRow(self._build_leg_row(
                 idx, tmpl, 2, "Leg2 (Long Put):", fixed=("BUY", "P", 1), show_target=False,
+                tooltips=tooltips,
             ))
             form.addRow(self._build_leg_row(
                 idx, tmpl, 3, "Leg3 (Short Call):", fixed=("SELL", "C", 1), show_target=False,
+                tooltips=tooltips,
             ))
             form.addRow(self._build_leg_row(
                 idx, tmpl, 4, "Leg4 (Long Call):", fixed=("BUY", "C", 1), show_target=False,
+                tooltips=tooltips,
             ))
 
         else:
@@ -2043,17 +2159,17 @@ class TradingBotUI(QMainWindow):
             form.addRow(self._build_leg_row(
                 idx, tmpl, 1, "Leg1:", fixed=None, show_target=True,
                 target_default=45, target_type_options=["Delta", "PercentageOTM", "NearestATM"],
-                target_type_default="Delta", dte_default=4,
+                target_type_default="Delta", dte_default=4, tooltips=tooltips,
             ))
             form.addRow(self._build_leg_row(
                 idx, tmpl, 2, "Leg2:", fixed=None, show_target=True,
                 target_default=-10, target_type_options=["StrikeOffset_Leg1"],
-                target_type_default="StrikeOffset_Leg1", dte_default=4,
+                target_type_default="StrikeOffset_Leg1", dte_default=4, tooltips=tooltips,
             ))
 
         return box
         
-    def _build_rescan_control_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_rescan_control_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__RESCAN_CONTROL – eigene Section (früher Teil von
         Execution/Sweep Advanced). MAX_RESCAN_ATTEMPTS wird von jeder Strategie
         mit Rescan-Loop genutzt, ist also nicht IC- oder Sweep-spezifisch."""
@@ -2064,6 +2180,7 @@ class TradingBotUI(QMainWindow):
         max_rescans.setRange(1, 50)
         max_rescans.setValue(int(tmpl.get("MAX_RESCAN_ATTEMPTS", 4)))
         max_rescans.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MAX_RESCAN_ATTEMPTS", val))
+        _apply_tooltip(max_rescans, tooltips, "MAX_RESCAN_ATTEMPTS")
 
         form.addRow("Max Rescan Attempts:", max_rescans)
 
@@ -2074,7 +2191,7 @@ class TradingBotUI(QMainWindow):
         gelten für Templates mit SYMBOL=NDX oder TEMPLATENAME beginnend mit 'NDX'."""
         return (tmpl.get("SYMBOL") == "NDX") or ((tmpl.get("TEMPLATENAME") or "").startswith("NDX"))
 
-    def _build_delta_steering_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_delta_steering_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__DELTA_STEERING – nur für NDX-Templates (z.B. NDX-50BPS)."""
         box = QGroupBox("NDX Delta Steering")
         form = QFormLayout(box)
@@ -2085,6 +2202,7 @@ class TradingBotUI(QMainWindow):
         offset.setDecimals(2)
         offset.setValue(float(tmpl.get("DELTA_TARGET_OFFSET", 0.2)))
         offset.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "DELTA_TARGET_OFFSET", val))
+        _apply_tooltip(offset, tooltips, "DELTA_TARGET_OFFSET")
 
         max_abs = QDoubleSpinBox()
         max_abs.setRange(0.5, 20.0)
@@ -2092,6 +2210,7 @@ class TradingBotUI(QMainWindow):
         max_abs.setDecimals(2)
         max_abs.setValue(float(tmpl.get("DELTA_MAX_ABS", 5.0)))
         max_abs.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "DELTA_MAX_ABS", val))
+        _apply_tooltip(max_abs, tooltips, "DELTA_MAX_ABS")
 
         expansion = QDoubleSpinBox()
         expansion.setRange(0.0, 10.0)
@@ -2099,6 +2218,7 @@ class TradingBotUI(QMainWindow):
         expansion.setDecimals(2)
         expansion.setValue(float(tmpl.get("DELTA_RESCAN_EXPANSION", 0.5)))
         expansion.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "DELTA_RESCAN_EXPANSION", val))
+        _apply_tooltip(expansion, tooltips, "DELTA_RESCAN_EXPANSION")
 
         form.addRow("Delta Target Offset:", offset)
         form.addRow("Delta Max Abs:", max_abs)
@@ -2106,7 +2226,7 @@ class TradingBotUI(QMainWindow):
 
         return box
 
-    def _build_short_leg_steering_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_short_leg_steering_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__SHORT_LEG_STEERING – nur für NDX-Templates."""
         box = QGroupBox("Short-Leg Mid Steering")
         form = QFormLayout(box)
@@ -2117,6 +2237,7 @@ class TradingBotUI(QMainWindow):
         mid_min.setDecimals(2)
         mid_min.setValue(float(tmpl.get("SHORT_LEG_MID_MIN", 1.0)))
         mid_min.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SHORT_LEG_MID_MIN", val))
+        _apply_tooltip(mid_min, tooltips, "SHORT_LEG_MID_MIN")
 
         mid_max = QDoubleSpinBox()
         mid_max.setRange(0.0, 50.0)
@@ -2124,6 +2245,7 @@ class TradingBotUI(QMainWindow):
         mid_max.setDecimals(2)
         mid_max.setValue(float(tmpl.get("SHORT_LEG_MID_MAX", 2.5)))
         mid_max.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SHORT_LEG_MID_MAX", val))
+        _apply_tooltip(mid_max, tooltips, "SHORT_LEG_MID_MAX")
 
         mid_expansion = QDoubleSpinBox()
         mid_expansion.setRange(0.0, 10.0)
@@ -2131,6 +2253,7 @@ class TradingBotUI(QMainWindow):
         mid_expansion.setDecimals(2)
         mid_expansion.setValue(float(tmpl.get("SHORT_LEG_MID_EXPANSION", 0.25)))
         mid_expansion.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "SHORT_LEG_MID_EXPANSION", val))
+        _apply_tooltip(mid_expansion, tooltips, "SHORT_LEG_MID_EXPANSION")
 
         form.addRow("Short Leg Mid Min ($):", mid_min)
         form.addRow("Short Leg Mid Max ($):", mid_max)
@@ -2138,7 +2261,7 @@ class TradingBotUI(QMainWindow):
 
         return box
 
-    def _build_strike_window_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_strike_window_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__STRIKE_WINDOW + __SECTION__MAX_STRIKE_SCAN – nur für
         NDX-Templates."""
         box = QGroupBox("Strike Window (NDX)")
@@ -2148,30 +2271,33 @@ class TradingBotUI(QMainWindow):
         strike_step.setRange(1, 100)
         strike_step.setValue(int(tmpl.get("STRIKE_STEP", 10)))
         strike_step.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "STRIKE_STEP", val))
+        _apply_tooltip(strike_step, tooltips, "STRIKE_STEP")
 
         upper_offset = QSpinBox()
         upper_offset.setRange(0, 5000)
         upper_offset.setValue(int(tmpl.get("STRIKE_UPPER_OFFSET", 225)))
         upper_offset.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "STRIKE_UPPER_OFFSET", val))
+        _apply_tooltip(upper_offset, tooltips, "STRIKE_UPPER_OFFSET")
 
         lower_offset = QSpinBox()
         lower_offset.setRange(0, 10000)
         lower_offset.setValue(int(tmpl.get("STRIKE_LOWER_OFFSET", 525)))
         lower_offset.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "STRIKE_LOWER_OFFSET", val))
+        _apply_tooltip(lower_offset, tooltips, "STRIKE_LOWER_OFFSET")
 
         max_scan = QSpinBox()
         max_scan.setRange(1, 500)
         max_scan.setValue(int(tmpl.get("MAX_STRIKE_SCAN", 30)))
         max_scan.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MAX_STRIKE_SCAN", val))
+        _apply_tooltip(max_scan, tooltips, "MAX_STRIKE_SCAN")
 
         form.addRow("Strike Step:", strike_step)
         form.addRow("Strike Upper Offset:", upper_offset)
         form.addRow("Strike Lower Offset:", lower_offset)
         form.addRow("Max Strike Scan:", max_scan)
 
-        return box        
+        return box    
         
-
     def _is_iron_condor_template(self, tmpl: dict) -> bool:
         """True für Templates mit TRADE_TYPE IRON_CONDOR/RUT_IRON_CONDOR
         (z.B. RUT-IC-DELTA-SYM). Analog zur Normalisierung in bot.py._create_trade_type."""
@@ -2184,7 +2310,7 @@ class TradingBotUI(QMainWindow):
         table.setItem(row, 1, QTableWidgetItem(str(max_dte)))
         table.setItem(row, 2, QTableWidgetItem(str(delta_limit)))
 
-    def _build_iv_rank_steering_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_iv_rank_steering_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__IV_RANK_STEERING – nur für Iron-Condor-Templates."""
         box = QGroupBox("IV-Rank Steering (Iron Condor)")
         form = QFormLayout(box)
@@ -2214,6 +2340,8 @@ class TradingBotUI(QMainWindow):
                 i, "IV_RANK_OVERRIDE", val if c.isChecked() else None
             )
         )
+        _apply_tooltip(chk_override, tooltips, "IV_RANK_OVERRIDE")
+        _apply_tooltip(spin_override, tooltips, "IV_RANK_OVERRIDE")
 
         override_layout.addWidget(chk_override)
         override_layout.addWidget(spin_override)
@@ -2225,6 +2353,7 @@ class TradingBotUI(QMainWindow):
         lookback.setSuffix(" Tage")
         lookback.setValue(int(tmpl.get("IV_RANK_LOOKBACK_DAYS", 365)))
         lookback.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "IV_RANK_LOOKBACK_DAYS", val))
+        _apply_tooltip(lookback, tooltips, "IV_RANK_LOOKBACK_DAYS")
 
         # --- LATE_ENTRY_CUTOFF_ET ---
         cutoff = QTimeEdit()
@@ -2234,6 +2363,7 @@ class TradingBotUI(QMainWindow):
         cutoff.timeChanged.connect(
             lambda t, i=idx: self.update_template_val(i, "LATE_ENTRY_CUTOFF_ET", t.toString("hh:mm:ss"))
         )
+        _apply_tooltip(cutoff, tooltips, "LATE_ENTRY_CUTOFF_ET")
 
         form.addRow("IV-Rank Override:", override_widget)
         form.addRow("IV-Rank Lookback:", lookback)
@@ -2271,12 +2401,13 @@ class TradingBotUI(QMainWindow):
         matrix_layout.setContentsMargins(0, 0, 0, 0)
         matrix_layout.addLayout(btn_row)
         matrix_layout.addWidget(matrix_table)
+        _apply_tooltip(matrix_container, tooltips, "IV_RANK_MATRIX")
 
         form.addRow("IV-Rank -> DTE/Delta Matrix:", matrix_container)
 
         return box
 
-    def _build_spread_width_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_spread_width_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__SPREAD_WIDTH – nur für Iron-Condor-Templates."""
         box = QGroupBox("Spread Width (Iron Condor)")
         form = QFormLayout(box)
@@ -2285,28 +2416,33 @@ class TradingBotUI(QMainWindow):
         strike_step.setRange(1, 100)
         strike_step.setValue(int(tmpl.get("STRIKE_STEP", 5)))
         strike_step.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "STRIKE_STEP", val))
+        _apply_tooltip(strike_step, tooltips, "STRIKE_STEP")
 
         min_width = QSpinBox()
         min_width.setRange(1, 1000)
         min_width.setSuffix(" Punkte")
         min_width.setValue(int(tmpl.get("MIN_SPREAD_WIDTH", 50)))
         min_width.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MIN_SPREAD_WIDTH", val))
+        _apply_tooltip(min_width, tooltips, "MIN_SPREAD_WIDTH")
 
         max_width = QSpinBox()
         max_width.setRange(1, 1000)
         max_width.setSuffix(" Punkte")
         max_width.setValue(int(tmpl.get("MAX_SPREAD_WIDTH", 100)))
         max_width.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "MAX_SPREAD_WIDTH", val))
+        _apply_tooltip(max_width, tooltips, "MAX_SPREAD_WIDTH")
 
         put_window = QSpinBox()
         put_window.setRange(1, 2000)
         put_window.setValue(int(tmpl.get("PUT_DELTA_WINDOW", 300)))
         put_window.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "PUT_DELTA_WINDOW", val))
+        _apply_tooltip(put_window, tooltips, "PUT_DELTA_WINDOW")
 
         call_window = QSpinBox()
         call_window.setRange(1, 2000)
         call_window.setValue(int(tmpl.get("CALL_DELTA_WINDOW", 300)))
         call_window.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "CALL_DELTA_WINDOW", val))
+        _apply_tooltip(call_window, tooltips, "CALL_DELTA_WINDOW")
 
         form.addRow("Strike Step:", strike_step)
         form.addRow("Min Spread Width:", min_width)
@@ -2323,7 +2459,7 @@ class TradingBotUI(QMainWindow):
 
         return box
         
-    def _build_profit_target_box(self, idx: int, tmpl: dict) -> QGroupBox:
+    def _build_profit_target_box(self, idx: int, tmpl: dict, tooltips: dict = None) -> QGroupBox:
         """__SECTION__PROFIT_TARGET – optional, gilt für ALLE TradeTypes.
         Checkable GroupBox: der Checked-Zustand IST PROFIT_TARGET_ENABLED,
         analog zum Streamlit-Toggle in config_trade_ui.py."""
@@ -2334,6 +2470,7 @@ class TradingBotUI(QMainWindow):
         box.setChecked(enabled)
         self.update_template_val(idx, "PROFIT_TARGET_ENABLED", enabled)
         box.toggled.connect(lambda checked, i=idx: self.update_template_val(i, "PROFIT_TARGET_ENABLED", checked))
+        _apply_tooltip(box, tooltips, "PROFIT_TARGET_ENABLED")
 
         form = QFormLayout(box)
 
@@ -2344,6 +2481,7 @@ class TradingBotUI(QMainWindow):
         pct_spin.setValue(pct_val)
         self.update_template_val(idx, "PROFIT_TARGET_PCT", pct_val)
         pct_spin.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "PROFIT_TARGET_PCT", val))
+        _apply_tooltip(pct_spin, tooltips, "PROFIT_TARGET_PCT")
 
         eth_check = self._make_toggle_switch(
             bool(tmpl.get("PROFIT_TARGET_ETH", False)),
@@ -2353,6 +2491,7 @@ class TradingBotUI(QMainWindow):
         eth_check.stateChanged.connect(
             lambda _s, i=idx, c=eth_check: self.update_template_val(i, "PROFIT_TARGET_ETH", c.isChecked())
         )
+        _apply_tooltip(eth_check, tooltips, "PROFIT_TARGET_ETH")
 
         form.addRow("Profit Target (%):", pct_spin)
         form.addRow("Extended Trading Hours:", eth_check)

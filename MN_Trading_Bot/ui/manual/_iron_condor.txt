@@ -1,0 +1,43 @@
+# ui/manual/_iron_condor.txt
+###RUT Iron Condor (TRADE_TYPE = IRON_CONDOR)
+
+###IV-Rank Steering & Spread Width (nur TRADE_TYPE=IRON_CONDOR)
+
+##IV_RANK_OVERRIDE
+>Manueller IV-Rank-Wert, der die Live-Berechnung via bot.get_iv_rank() komplett
+überspringt. Aktiviert = fester Wert wird in die IV_RANK_MATRIX eingespeist.
+Deaktiviert (None) = Live-Berechnung bei jedem Trading-Zyklus.
+
+##IV_RANK_LOOKBACK_DAYS
+>Lookback-Zeitraum in Tagen für die IV-Rank-Berechnung (Min/Max der historischen
+implizierten Volatilität). Nur relevant, wenn IV_RANK_OVERRIDE deaktiviert ist.
+
+##LATE_ENTRY_CUTOFF_ET
+>ET-Uhrzeit, ab der ein Late-Entry angenommen wird. Nach Erreichen/Überschreiten
+dieser Zeit wird die per IV-Rank-Matrix ermittelte Ziel-DTE automatisch um 1
+Tag erhöht.
+
+##IV_RANK_MATRIX
+>Steuerungstabelle: ordnet IV-Rank-Schwellen (MIN_IV_RANK) jeweils eine
+maximale DTE (MAX_DTE) und eine Delta-Grenze (DELTA_LIMIT) zu. Der Bot wählt
+die höchste Schwelle, die der aktuelle IV-Rank noch erfüllt (>=).
+
+##MIN_SPREAD_WIDTH
+>Minimale Spread-Breite in Punkten zwischen Short- und Long-Strike (je Seite).
+Startpunkt der Briefkurs-Regel-Suche nach dem Long-Strike.
+
+##MAX_SPREAD_WIDTH
+>Maximale Spread-Breite in Punkten. Obergrenze, bis zu der die Briefkurs-Regel
+nach außen wandert, solange der Ask-Preis noch sinkt.
+
+##PUT_DELTA_WINDOW
+>Punkte-Fenster unterhalb des Underlying-Preises, innerhalb dessen Put-Deltas
+für die Short-Put-Auswahl abgefragt werden.
+
+##CALL_DELTA_WINDOW
+>Punkte-Fenster oberhalb des Underlying-Preises, innerhalb dessen Call-Deltas
+für die Short-Call-Auswahl abgefragt werden.
+
+##STRIKE_STEP
+>Strike-Abstand des Underlyings (z.B. 5 Punkte bei RUT). Bestimmt die
+Schrittweite beim Abwandern der Long-Strikes in der Briefkurs-Regel.

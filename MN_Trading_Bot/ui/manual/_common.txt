@@ -1,0 +1,72 @@
+# ui/manual/_common.txt
+###Gemeinsame Felder (gelten für jeden TRADE_TYPE)
+
+##TEMPLATENAME
+>Eindeutiger Name des Templates. Wird als TRADETEMPLATE-Referenz in schedules.json
+verwendet und bestimmt den Dateinamen für strategie-spezifische Tooltips
+(manual/<TEMPLATENAME>.txt).
+
+##TRADE_TYPE
+>Bestimmt die Strike-Auswahl-Logik: BULL_PUT (2-Leg Put Spread), PBW (Put Broken
+Wing, 3 Legs) oder IRON_CONDOR (4-Leg RUT Iron Condor mit eigenem IV-Rank-Steering).
+Steuert außerdem, welche Zusatz-Sections (NDX-Steering, IV-Rank-Steering, Spread
+Width) im Editor eingeblendet werden.
+
+##SYMBOL
+>Underlying-Symbol der Optionskette (SPX, NDX oder RUT). Bestimmt die TradingClass
+(SPXW/NDXP/RUTW, siehe market/option_chain.py) sowie den Tick-Step bei der
+Preisrundung (0,02 $ bei NDX, sonst 0,05 $).
+
+##COMMISSION_PER_CONTRACT
+>Kommission pro Kontrakt in $. Wird nur als Fallback für die Trade-Report-CSV
+verwendet, falls aus den echten IB-Fills keine Commission ausgelesen werden konnte
+(siehe trade_logger.py). Hat keinen Einfluss auf Strike-Auswahl oder Order-Preise.
+
+##MIN_SWEEP_PRICE
+>Startpunkt des Sweeps – der optimistischste (meiste) Credit, den der Bot zuerst
+versucht. IB-Notation: negativ, z.B. -6.00 = 6,00 $ Credit. Reihenfolge zu
+MAX_SWEEP_PRICE ist egal, der Bot sortiert MIN/MAX beim Start automatisch.
+
+##MAX_SWEEP_PRICE
+>Preisobergrenze / Schmerzgrenze des Sweeps – der geringste Credit, den der Bot
+noch akzeptiert, bevor er abbricht. IB-Notation: negativ, z.B. -0.30 = 0,30 $
+Credit. Der Sweep bewegt sich schrittweise von MIN_SWEEP_PRICE Richtung
+MAX_SWEEP_PRICE (weniger Credit, höhere Fill-Wahrscheinlichkeit).
+
+##MAX_SWEEP_ATTEMPTS
+>Maximale Anzahl an Preisanpassungen innerhalb EINES Sweeps, bevor die Order
+storniert und zum nächsten Rescan übergegangen wird.
+
+##SWEEP_WAIT_SECONDS
+>Wartezeit in Sekunden pro Preisstufe: so lange bleibt die Order zu einem Preis
+am Markt liegen, bevor sie zum nächsten (weniger vorteilhaften) Preis
+nachgezogen wird.
+
+##SWEEP_STEP
+>Preisschritt pro Sweep-Versuch in $. Der Bot bewegt den Limit-Preis nach jedem
+erfolglosen Versuch um diesen Betrag Richtung MAX_SWEEP_PRICE (weniger Credit).
+
+##START_SWEEP_QUANTILE
+>Position des Startpreises zwischen rechnerischem Geldkurs (0.0, meiste Credit)
+und Briefkurs/Natural Credit (1.0, wenigste Credit, sicherster Fill). Default
+0.25 = oberes Viertel, näher am Geldkurs. Wird zusätzlich durch MAX_SWEEP_PRICE
+gedeckelt.
+
+##MAX_RESCAN_ATTEMPTS
+>Maximale Anzahl an Rescan-Durchläufen pro Trading-Zyklus, wenn ein Sweep
+erfolglos bleibt. Nach jedem Rescan wird der Strike/Delta neu bewertet. Sind
+alle Versuche ausgeschöpft, bricht der Bot für den Tag ohne Trade ab.
+
+##PROFIT_TARGET_ENABLED
+>Schaltet die automatische GTC-Exit-Order nach dem Fill ein/aus. Deaktiviert =
+kein Profit Target, Position läuft bis Verfall bzw. wird manuell verwaltet.
+
+##PROFIT_TARGET_PCT
+>Prozentsatz des Einstiegs-Credits, bei dem die GTC-Exit-Order (SELL to close)
+platziert wird. Beispiel: 50 % bei -3,60 $ Einstiegscredit -> Exit-Limit bei
+-1,80 $ (auf 0,05 $ gerundet).
+
+##PROFIT_TARGET_ETH
+>Wenn aktiv, ist die GTC-Exit-Order auch außerhalb der regulären Handelszeiten
+ausführbar (outsideRth=True bei der IB-Order). Deaktiviert = nur reguläre
+Handelszeiten (RTH).
