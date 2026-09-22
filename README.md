@@ -1,28 +1,27 @@
 # MN Options Trading Bot
 
-Ein konfigurdatei-gestützter **Optionshandel-Bot** für **Interactive Brokers**, der automatisiert mehrere Strategien mit Real-Time-Daten und Technischen-Indikatoren ausführt.
+Ein UI-gestützter **Optionshandel-Bot** für **Interactive Brokers**, der automatisiert mehrere Strategien mit Real-Time-Daten und Technischen-Indikatoren ausführt.
 
 ## 🎯 Features
 
-- **Mehrfach-Strategien** via `config/schedules.json` (zeitbasierte Ausführung)
-- **Flexible Trade-Typen** via `config/trade_templates.json`:
+- **Mehrfach-Strategien**
+  - Schedule Editor
+- **Flexible Trade-Typen**
   - Bull Put Spreads
   - Put Broken Wing (PBW)
   - RUT Iron Condor
   - Butterfly-Spreads
   - Weitere benutzerdefinierte Strukturen
-- **Intelligente Entry-Bedingungen** (konfigurierbar):
-  - RSI (Relative Strength Index)
+- **Intelligente Entry-Bedingungen**
+  - RSI
   - Intraday-Bewegungen
-  - SMA (Simple Moving Average)
+  - SMA
   - IV Rank
   - VIX-Level
-- **Position Sizing** basierend auf verfügbarer Kaufkraft
+- **Position Sizing**
 - **Paper & Live Trading** Unterstützung
-- **Headless CLI** für Server/Automatisierung
 - **Telegram-Benachrichtigungen** für Trade-Alerts
 - **Detailliertes Logging** und CSV-Trade-Reports
-- **Fehlerbehandlung** mit Graceful Shutdown
 
 ## 📋 Voraussetzungen
 
@@ -48,9 +47,6 @@ python -m venv venv
 Aktivieren
 Windows:
 venv\Scripts\activate
-macOS/Linux:
-source venv/bin/activate
-
 
 ### 3. Abhängigkeiten installieren
 pip install -r requirements.txt
@@ -58,39 +54,27 @@ pip install -r requirements.txt
 
 ## ⚙️ Konfiguration
 
-Alle Einstellungen befinden sich im `config/` Verzeichnis:
+Alle Einstellungen werden über den MN Trading Bot Manager gestartet.
+Starte start_ui.vbs um den MN Trading Bot Manager zu starten.
 
-### `%userprofile%/mn_bot/config/broker_settings.json`
-{ "IB_HOST": "127.0.0.1", "IB_PORT_PAPER": 7498, "IB_PORT_LIVE": 7497, "CLIENT_ID": 1, "USE_PAPER_TRADING": true }
+## ⚙️ Dienst-Konfiguration
+Der Bot benötigt den MN Trading Bot Scheduler (https://github.com/MaNieslony/MNTradingBotScheduler)
+um automatisiert die Trades durchführen zu können.
 
-
-### `%userprofile%/mn_bot/config/bot_mode_settings.json`
-{ "DEBUG_MODE": false, "CHECK_CONDITIONS": true, "CHECK_EXECUTION_TIME": true, "CHECK_MARKET_OPEN": true, "TRADE_REPORT_CSV": "reports/mn_trading_trade_report.csv" }
-
-
-### `%userprofile%/mn_bot/config/schedules.json`
-Definiert **wann** und **unter welchen Bedingungen** gehandelt wird:
-{ "schedules": [ { "NAME": "SPX-FFBPS", "ENABLED": true, "TRADE_TYPE": "BULL_PUT", "SYMBOL": "SPX", "EXECUTION_TIME": "09:35", "EXECUTION_DTE": 0, "CHECK_CONDITIONS": true, "ENTRY_CONDITIONS": [ { "type": "RSI", "period": 14, "threshold": 50, "operator": ">" } ] } ] }
-
-
-### `%userprofile%/mn_bot/config/trade_templates.json`
-Definiert **wie** die Trades strukturiert sind:
-{ "templates": [ { "TRADE_TYPE": "BULL_PUT", "SYMBOL": "SPX", "LEGS": [...], "TARGET_DELTA": -0.20, "POSITION_SIZE": 5 } ] }
-
-### `%userprofile%/mn_bot/config/telegram_settings.json`
-{ "TELEGRAM_ENABLED": true, "TELEGRAM_BOT_TOKEN": "your_bot_token", "TELEGRAM_CHAT_ID": "your_chat_id" }
-
+Kurzform:
+ 0. Voraussetzungen installieren apscheduler, watchdog, nssm(windows)
+ 1. Dienst mit NSSM erstellen
+ 2. Arbeitsverzeichnis festlegen
+ 3. Log-Dateien für den Dienst festlegen (wichtig für Fehlersuche
+ 4. Neustart-Verhalten konfigurieren (falls das Skript einmal abstürzt)
+ 5. Setzt die UTF-8 Umgebungsvariable für den Windows-Dienst
+ 6. Description setzen
+ 7. Dienst starten
 
 ## 💻 Verwendung
 
 ### Grundlegender Start
 python bot.py --schedule SPX-FFBPS
-
-### Mit Debug-Modus
-python bot.py --schedule SPX-FFBPS --debug
-
-### Verfügbare Optionen
-python bot.py --help
 
 **MN Trading Bot Scheduler** 
 
@@ -121,7 +105,7 @@ start "MN Trading Bot - %TASK_NAME%" "%PYTHON_EXE%" -u "%SCRIPT_PATH%" --schedul
 
 
 ## 📁 Projektstruktur
-C:\ProgramData\C:\ProgramData\MNTradingBotScheduler
+C:\ProgramData\MNTradingBotScheduler
 
 ├── service_runner.py
 
