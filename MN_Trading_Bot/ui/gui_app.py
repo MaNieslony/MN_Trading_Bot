@@ -675,7 +675,15 @@ def load_manual_tooltips(template_name: str, trade_type: str = "") -> dict:
         tooltips.update(_parse_manual_file(MANUAL_DIR / f"{template_name}.txt"))
 
     return tooltips
-
+    
+def load_schedule_manual_tooltips() -> dict:
+    """
+    Lädt Tooltip-Texte für den Schedule-Editor aus manual/_schedule.txt.
+    Nutzt denselben Parser (_parse_manual_file) wie load_manual_tooltips(),
+    aber ohne die TRADE_TYPE-/TEMPLATENAME-Schichtung, da Schedule-Felder
+    für jedes Schedule identisch sind.
+    """
+    return _parse_manual_file(MANUAL_DIR / "_schedule.txt")
 
 def _apply_tooltip(widget, tooltips: dict, key: str) -> None:
     """Setzt ein (wortumbrechendes) Tooltip nur, wenn für 'key' ein Eintrag
@@ -684,7 +692,7 @@ def _apply_tooltip(widget, tooltips: dict, key: str) -> None:
     if not text:
         return
     escaped = html.escape(text)
-    widget.setToolTip(f"<html><body style='max-width:580px'>{escaped}</body></html>")
+    widget.setToolTip(f"<html><body style='max-width:780px'>{escaped}</body></html>")
 
 # Hilfsfunktionen zum Laden/Speichern von JSON
 def load_json(filepath, default_content):
@@ -1148,6 +1156,8 @@ class TradingBotUI(QMainWindow):
     def init_schedule_editor_form(self):
         main_layout = QVBoxLayout(self.editor_box)
 
+        tooltips = load_schedule_manual_tooltips()
+
         # ==========================================
         # 1. Schedule Details
         # ==========================================
@@ -1156,7 +1166,10 @@ class TradingBotUI(QMainWindow):
         f_details.setLabelAlignment(Qt.AlignLeft)
 
         self.edit_name = QLineEdit()
+        _apply_tooltip(self.edit_name, tooltips, "SCHEDULE_NAME")
+
         self.edit_template = QComboBox()
+        _apply_tooltip(self.edit_template, tooltips, "TEMPLATE")
 
         qty_widget = QWidget()
         qty_layout = QHBoxLayout(qty_widget)
@@ -1164,8 +1177,11 @@ class TradingBotUI(QMainWindow):
 
         self.edit_mode = QComboBox()
         self.edit_mode.addItems(["FixedQty"])
+        _apply_tooltip(self.edit_mode, tooltips, "QTY_MODE")
+
         self.edit_qty = QSpinBox()
         self.edit_qty.setRange(1, 1000)
+        _apply_tooltip(self.edit_qty, tooltips, "QTY")
 
         qty_layout.addWidget(self.edit_mode, 2)
         qty_layout.addWidget(QLabel("Anzahl:"), 0)
@@ -1188,6 +1204,7 @@ class TradingBotUI(QMainWindow):
 
         self.edit_time = QTimeEdit()
         self.edit_time.setDisplayFormat("HH:mm:ss")
+        _apply_tooltip(self.edit_time, tooltips, "EXECUTION_TIME")
 
         # Reine Anzeige-Hilfe (AM/PM) neben der 24h-Eingabe – wird NICHT
         # mitgespeichert, EXECUTION_TIME bleibt unverändert im HH:mm:ss-Format.
@@ -1203,6 +1220,7 @@ class TradingBotUI(QMainWindow):
         self.edit_expiration_minutes = QSpinBox()
         self.edit_expiration_minutes.setRange(0, 120)
         self.edit_expiration_minutes.setSuffix(" min")
+        _apply_tooltip(self.edit_expiration_minutes, tooltips, "EXPIRATION_MINUTES")
 
         days_widget = QWidget()
         days_layout = QHBoxLayout(days_widget)
@@ -1214,9 +1232,11 @@ class TradingBotUI(QMainWindow):
             self.day_checkboxes[day] = cb
             days_layout.addWidget(cb)
         days_layout.addStretch()
+        _apply_tooltip(days_widget, tooltips, "DAYS_TO_EXECUTE")
 
         self.edit_week_of_month = QComboBox()
         self.edit_week_of_month.addItems(["Jede Woche", "1. Woche", "2. Woche", "3. Woche", "4. Woche", "5. Woche"])
+        _apply_tooltip(self.edit_week_of_month, tooltips, "WEEK_OF_MONTH")
 
         f_timing.addRow("Execution Time:", time_widget)
         f_timing.addRow("Expiration Minutes:", self.edit_expiration_minutes)
@@ -1236,18 +1256,23 @@ class TradingBotUI(QMainWindow):
         f_cond = QFormLayout(grp_cond)
         f_cond.setLabelAlignment(Qt.AlignLeft)
         self.grp_entry_conditions = grp_cond
+        _apply_tooltip(grp_cond, tooltips, "ENTRY_CONDITIONS_GROUP")
 
         # RSI Zeile
         rsi_widget = QWidget()
         rsi_layout = QHBoxLayout(rsi_widget)
         rsi_layout.setContentsMargins(0, 0, 0, 0)
         self.chk_rsi = self._make_toggle_switch(False)
+        _apply_tooltip(self.chk_rsi, tooltips, "RSI_ENABLE")
         self.spin_rsi_period = QSpinBox()
         self.spin_rsi_period.setRange(1, 200)
+        _apply_tooltip(self.spin_rsi_period, tooltips, "RSI_PERIOD")
         self.spin_rsi_min = QSpinBox()
         self.spin_rsi_min.setRange(0, 100)
+        _apply_tooltip(self.spin_rsi_min, tooltips, "RSI_MIN")
         self.spin_rsi_max = QSpinBox()
         self.spin_rsi_max.setRange(0, 100)
+        _apply_tooltip(self.spin_rsi_max, tooltips, "RSI_MAX")
 
         rsi_layout.addWidget(self.chk_rsi)
         rsi_layout.addWidget(QLabel("Periode:"))
@@ -1262,8 +1287,10 @@ class TradingBotUI(QMainWindow):
         sma_layout = QHBoxLayout(sma_widget)
         sma_layout.setContentsMargins(0, 0, 0, 0)
         self.chk_sma = self._make_toggle_switch(False)
+        _apply_tooltip(self.chk_sma, tooltips, "SMA_ENABLE")
         self.spin_sma_period = QSpinBox()
         self.spin_sma_period.setRange(1, 200)
+        _apply_tooltip(self.spin_sma_period, tooltips, "SMA_PERIOD")
         sma_layout.addWidget(self.chk_sma)
         sma_layout.addWidget(QLabel("Periode:"))
         sma_layout.addWidget(self.spin_sma_period)
@@ -1274,16 +1301,18 @@ class TradingBotUI(QMainWindow):
         intraday_layout = QHBoxLayout(intraday_widget)
         intraday_layout.setContentsMargins(0, 0, 0, 0)
         self.chk_intraday = self._make_toggle_switch(False)
+        _apply_tooltip(self.chk_intraday, tooltips, "INTRADAY_ENABLE")
         self.spin_intraday_pct = QDoubleSpinBox()
         self.spin_intraday_pct.setRange(-100.0, 100.0)
         self.spin_intraday_pct.setSingleStep(0.05)
         self.spin_intraday_pct.setSuffix(" %")
+        _apply_tooltip(self.spin_intraday_pct, tooltips, "INTRADAY_MIN_PCT")
         intraday_layout.addWidget(self.chk_intraday)
         intraday_layout.addWidget(QLabel("Min %:"))
         intraday_layout.addWidget(self.spin_intraday_pct)
         intraday_layout.addStretch()
-        
-        # VIX Zeile
+
+        # VIX Zeile (kein Eintrag in manual/_schedule.txt -> kein Tooltip)
         vix_widget = QWidget()
         vix_layout = QHBoxLayout(vix_widget)
         vix_layout.setContentsMargins(0, 0, 0, 0)
@@ -1299,7 +1328,7 @@ class TradingBotUI(QMainWindow):
         vix_layout.addWidget(self.spin_vix_min)
         vix_layout.addWidget(QLabel("Max:"))
         vix_layout.addWidget(self.spin_vix_max)
-        vix_layout.addStretch()        
+        vix_layout.addStretch()
 
         # Reihenfolge (Drag & Drop) -> bestimmt ORDER für RSI/ABOVE_SMA/INTRADAY_MOVE/VIX
         # (ab 2). WEEKDAY_FILTER ist immer fest ORDER=1 und wird hier nicht gelistet.
@@ -1307,10 +1336,7 @@ class TradingBotUI(QMainWindow):
         self.cond_order_list.setDragDropMode(QAbstractItemView.InternalMove)
         self.cond_order_list.setDefaultDropAction(Qt.MoveAction)
         self.cond_order_list.setFixedHeight(90)
-        self.cond_order_list.setToolTip(
-            "Reihenfolge per Drag & Drop ändern – bestimmt ORDER (ab 2). "
-            "WEEKDAY_FILTER läuft unabhängig davon immer zuerst (ORDER 1)."
-        )
+        _apply_tooltip(self.cond_order_list, tooltips, "COND_ORDER_LIST")
         self._populate_condition_order_list({"RSI": 2, "ABOVE_SMA": 3, "INTRADAY_MOVE": 4, "VIX": 5})
 
         f_cond.addRow("RSI Condition:", rsi_widget)
@@ -1328,10 +1354,12 @@ class TradingBotUI(QMainWindow):
 
         self.edit_ramp_up = QTimeEdit()
         self.edit_ramp_up.setDisplayFormat("HH:mm:ss")
+        _apply_tooltip(self.edit_ramp_up, tooltips, "RAMP_UP_TIME")
 
         self.edit_max_runtime = QSpinBox()
         self.edit_max_runtime.setRange(0, 1440)
         self.edit_max_runtime.setSuffix(" min")
+        _apply_tooltip(self.edit_max_runtime, tooltips, "MAX_RUNTIME")
 
         f_adv.addRow("Ramp Up Time:", self.edit_ramp_up)
         f_adv.addRow("Max Runtime:", self.edit_max_runtime)
@@ -1343,6 +1371,7 @@ class TradingBotUI(QMainWindow):
         f_status = QFormLayout(grp_status)
         f_status.setLabelAlignment(Qt.AlignLeft)
         self.edit_disabled = self._make_toggle_switch(True)
+        _apply_tooltip(self.edit_disabled, tooltips, "SCHEDULE_ACTIVE")
         f_status.addRow("Schedule:", self.edit_disabled)
 
         # Main Layout zusammenbauen
