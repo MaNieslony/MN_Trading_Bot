@@ -90,6 +90,65 @@ def place_profit_target_order(
         logger.error(f"Failed to place profit target order: {e}", exc_info=True)
         return None
 
+
+_DONE_STATUSES = ("Filled", "Cancelled", "ApiCancelled", "Inactive")
+
+def _is_done(trade) -> bool:
+    """True, wenn die Order einen Endzustand erreicht hat."""
+    if trade is None:
+        return True
+    return (getattr(trade.orderStatus, "status", "") or "") in _DONE_STATUSES
+
+def _filled_qty(trade) -> int:
+    """
+    Anzahl bereits gefillter Combos. Nimmt das Maximum aus orderStatus.filled
+    und der Summe der BAG-Executions (robust gegen verzögerte Status-Updates).
+    """
+    if trade is None:
+        return 0
+
+    filled = float(getattr(trade.orderStatus, "filled", 0) or 0)
+
+    bag_filled = 0.0
+    for f in getattr(trade, "fills", None) or []:
+        c = getattr(f, "contract", None)
+        if c is not None and getattr(c, "secType", "") == "BAG":
+            bag_filled += float(getattr(f.execution, "shares", 0) or 0)
+
+    return int(max(filled, bag_filled))
+
+def _cancel_and_wait(*, ib, logger, trade, timeout: float = 8.0) -> bool:
+    """
+    Storniert die Order und WARTET, bis IB den Endzustand bestätigt
+    (Cancelled/Filled/...). Erst danach ist trade.orderStatus.filled final.
+    Rückgabe: True = Endzustand bestätigt, False = Timeout.
+    """
+    if trade is None:
+        return True
+
+    if not _is_done(trade):
+        try:
+            ib.cancelOrder(trade.order)
+        except Exception as e:
+            logger.debug(f"Cancel exception (may be normal): {e}")
+
+    waited = 0.0
+    while not _is_done(trade) and waited < timeout:
+        ib.sleep(0.2)
+        waited += 0.2
+
+    if not _is_done(trade):
+        logger.error(
+            f"Cancel NOT confirmed after {timeout:.0f}s "
+            f"(status={getattr(trade.orderStatus, 'status', '?')}) – "
+            f"Fill-Status unsicher, bitte TWS prüfen!"
+        )
+        return False
+
+    # kurze Gnadenfrist für nachlaufende Execution-Events
+    ib.sleep(0.5)
+    return True
+
 def execute_credit_sweep(
     *,
     ib,
@@ -116,24 +175,17 @@ def execute_credit_sweep(
     start_sweep_quantile: float = 0.25,
 ):
     """
-    IMPORTANT:
-    - Start price is quantized UP to tick (market-friendly for credits).
-    - Sweep progression quantizes UP to tick (so we always progress for negative prices).
+    Credit-Sweep mit lückenloser Fill-Erkennung.
 
-    Start-Sweep-Position:
-    - Start-Preis wird innerhalb der Geldkurs-/Briefkurs-Spanne (theoretischer
-      Bestpreis <-> natural credit) per start_sweep_quantile gewählt:
-        0.0 -> Start am Geldkurs (Bestpreis, meiste Credit)
-        0.5 -> Start am Mid-Preis (altes Verhalten)
-        1.0 -> Start am Briefkurs (natural credit, wenigste Credit)
-      Default 0.25 = oberes Viertel der Spanne (näher am Geldkurs).
-      Geldkurs wird rechnerisch aus mid/natural abgeleitet:
-        best = 2*mid - natural
-      Keine zusätzlichen IB-Anfragen nötig.
+    Grundregel: JEDER Exit-Pfad (Ceiling, Max-Attempts, Expiration, Stop-Request,
+    Cancel/Replace) storniert die Order per _cancel_and_wait() und prüft
+    DANACH _filled_qty(). Wurde irgendetwas gefillt (auch teilweise), gilt der
+    Trade als ausgeführt (Partial Fill = complete, Rest ist storniert) und es
+    gibt KEINEN weiteren Rescan/Sweep -> keine Doppel-Trades.
     """
 
     # --------------------------------------------------------------------
-    # Quantity (size off natural credit worst-case fill; fallback to min_qty)
+    # Quantity
     # --------------------------------------------------------------------
     if found_credit and found_credit < 0 and natural_credit and natural_credit < 0:
         quantity = calculate_quantity_callable(
@@ -153,9 +205,7 @@ def execute_credit_sweep(
         return None
 
     # --------------------------------------------------------------------
-    # Start price: oberes Viertel der Geld-/Briefkurs-Spanne (statt reinem Mid).
-    # Geldkurs (best-case) = 2*mid - natural (rechnerisch, ohne zusätzliche IB-Calls).
-    # Quantize UP to tick. Clamp to max_sweep_price (ceiling).
+    # Start price
     # --------------------------------------------------------------------
     if natural_credit and natural_credit < 0 and found_credit <= natural_credit:
         best_credit = (2.0 * found_credit) - natural_credit
@@ -190,10 +240,56 @@ def execute_credit_sweep(
     expiration_time = start_time + timedelta(minutes=expiration_minutes)
 
     # --------------------------------------------------------------------
+    # Gemeinsamer Abschluss für Voll- UND Teil-Fills
+    # --------------------------------------------------------------------
+    def _complete(filled_qty: int):
+        fill_price = trade.orderStatus.avgFillPrice
+
+        if filled_qty < quantity:
+            logger.warning(
+                f"Partial fill: {filled_qty}/{quantity} contracts @ ${fill_price:.2f} – "
+                f"remaining cancelled, treating as complete (no further sweep/rescan)"
+            )
+
+        logger.debug("=" * 80)
+        logger.info("✅ ORDER FILLED ✅")
+        logger.debug("=" * 80)
+        logger.info(f"Fill credit: ${fill_price:.2f}, Quantity: {filled_qty}")
+        logger.debug(f"vs Reference credit: ${found_credit:.2f}")
+
+        discount_pct = ((found_credit - fill_price) / found_credit) * 100
+        label = "Discount" if discount_pct >= 0 else "Premium"
+        direction = "below" if discount_pct >= 0 else "above"
+        logger.debug(f"{label}: {abs(discount_pct):.1f}% {direction} reference")
+
+        time_elapsed = (datetime.now() - start_time).total_seconds() / 60
+        logger.debug(f"Time elapsed since entry: {time_elapsed:.1f}m")
+
+        profit_target = None
+        if profit_target_enabled:
+            profit_target = place_profit_target_order(
+                ib=ib,
+                logger=logger,
+                combo=combo,
+                entry_credit=fill_price,
+                quantity=int(filled_qty),
+                profit_target_pct=profit_target_pct,
+                profit_target_eth=profit_target_eth,
+                order_ref=order_ref,
+            )
+
+        log_trade_callable(trade, fill_price, int(filled_qty), profit_target=profit_target)
+        return trade
+
+    def _cancel_then_check():
+        """Stornieren, Endzustand abwarten, dann Fill prüfen. -> (confirmed, filled_qty)"""
+        confirmed = _cancel_and_wait(ib=ib, logger=logger, trade=trade)
+        return confirmed, _filled_qty(trade)
+
+    # --------------------------------------------------------------------
     # MAIN SWEEP LOOP
     # --------------------------------------------------------------------
     while attempt < max_sweep_attempts:
-        # stop if we've crossed the max price ceiling (less negative than allowed)
         if current_credit > max_sweep_price:
             break
 
@@ -201,17 +297,16 @@ def execute_credit_sweep(
         if datetime.now() > expiration_time:
             logger.warning(f"Expiration window ({expiration_minutes}m) exceeded")
             if trade:
-                try:
-                    ib.cancelOrder(trade.order)
-                    logger.info("✓ Order cancelled due to expiration window")
-                except Exception as e:
-                    logger.debug(f"Order already cancelled: {e}")
+                _, filled = _cancel_then_check()
+                if filled > 0:
+                    return _complete(filled)
+                logger.info("✓ Order cancelled due to expiration window")
             return None
 
         attempt += 1
 
         # ----------------------------------------------------------------
-        # PLACE NEW ORDER (first attempt)
+        # PLACE / REPLACE
         # ----------------------------------------------------------------
         if order is None:
             logger.info(f"[{attempt}/{max_sweep_attempts}] Placing order @ ${current_credit:.2f}")
@@ -227,219 +322,102 @@ def execute_credit_sweep(
             try:
                 trade = ib.placeOrder(combo, order)
                 logger.debug(f"  Order ID: {trade.order.orderId}")
-
             except Exception as e:
                 logger.error(f"Failed to place initial order: {e}")
                 return None
 
         else:
-            # ------------------------------------------------------------
-            # CHECK FILL STATUS BEFORE MODIFYING
-            # ------------------------------------------------------------
-            filled = float(getattr(trade.orderStatus, "filled", 0) or 0)
-            remaining = float(getattr(trade.orderStatus, "remaining", 0) or 0)
-            status = getattr(trade.orderStatus, "status", "") or ""
+            logger.info(f"[{attempt}/{max_sweep_attempts}] Modifying to ${current_credit:.2f}")
 
-            if status == "Filled" or filled >= trade.order.totalQuantity or remaining == 0:
-                pass
-            else:
-                logger.info(f"[{attempt}/{max_sweep_attempts}] Modifying to ${current_credit:.2f}")
+            # Cancel & replace: erst nach BESTÄTIGTEM Cancel weitermachen
+            confirmed, filled = _cancel_then_check()
 
-                # Cancel & replace (preferred for BAG)
-                try:
-                    ib.cancelOrder(trade.order)
-                    logger.debug("Cancelled old order for price update")
-                    ib.sleep(1.5)
-                except Exception as cancel_e:
-                    logger.debug(f"Cancel exception (may be normal): {cancel_e}")
+            if filled > 0:
+                return _complete(filled)
 
-                # ---- FILL CHECK AFTER CANCEL ----
-                already_filled = int(float(getattr(trade.orderStatus, "filled", 0) or 0))
-                status2 = getattr(trade.orderStatus, "status", "") or ""
-                remaining2 = float(getattr(trade.orderStatus, "remaining", 0) or 0)
+            if not confirmed:
+                logger.error("Old order still live – aborting sweep (no replacement to avoid double fill)")
+                return None
 
-                is_fully_filled = (status2 == "Filled") or (already_filled >= quantity) or (remaining2 == 0)
-                is_partially_filled = already_filled > 0 and not is_fully_filled
+            logger.debug("Cancelled old order for price update")
 
-                if is_fully_filled:
-                    logger.debug("")
-                    logger.debug("=" * 80)
-                    logger.debug("✅ ORDER FILLED DURING CANCEL/REPLACE ✅")
-                    logger.debug("=" * 80)
-                    fill_price = trade.orderStatus.avgFillPrice
-                    logger.info(f"Fill credit: ${fill_price:.2f}, Quantity: {already_filled}")
-                    logger.debug(f"vs Reference credit: ${found_credit:.2f}")
-                    discount_pct = ((found_credit - fill_price) / found_credit) * 100
-                    label = "Discount" if discount_pct >= 0 else "Premium"
-                    direction = "below" if discount_pct >= 0 else "above"
-                    logger.debug(f"{label}: {abs(discount_pct):.1f}% {direction} reference")
-                    time_elapsed = (datetime.now() - start_time).total_seconds() / 60
-                    logger.debug(f"Time elapsed since entry: {time_elapsed:.1f}m")
-
-                    profit_target = None
-
-                    if profit_target_enabled:
-                        profit_target = place_profit_target_order(
-                            ib=ib,
-                            logger=logger,
-                            combo=combo,
-                            entry_credit=fill_price,
-                            quantity=int(quantity),
-                            profit_target_pct=profit_target_pct,
-                            profit_target_eth=profit_target_eth,
-                            order_ref=order_ref,
-                        )
-
-                    log_trade_callable(trade, fill_price, quantity, profit_target=profit_target)
-                    return trade
-
-                if is_partially_filled:
-                    logger.warning(
-                        f"Partial fill detected on cancelled order: "
-                        f"{already_filled}/{quantity} contracts @ "
-                        f"${trade.orderStatus.avgFillPrice:.2f} — "
-                        f"treating as complete to avoid duplicate fills"
-                    )
-                    fill_price = trade.orderStatus.avgFillPrice
-
-                    profit_target = None
-                    if profit_target_enabled:
-                        profit_target = place_profit_target_order(
-                            ib=ib,
-                            logger=logger,
-                            combo=combo,
-                            entry_credit=fill_price,
-                            quantity=int(already_filled),
-                            profit_target_pct=profit_target_pct,
-                            profit_target_eth=profit_target_eth,
-                            order_ref=order_ref,
-                        )
-
-                    log_trade_callable(trade, fill_price, already_filled, profit_target=profit_target)
-                    return trade
-
-                # Nothing filled — replace
-                try:
-                    order = LimitOrder(
-                        action="BUY",
-                        totalQuantity=quantity,
-                        lmtPrice=current_credit,
-                        orderRef=order_ref,
-                        tif="DAY",
-                    )
-                    trade = ib.placeOrder(combo, order)
-                    logger.debug(f"Replacement order placed - new Order ID: {trade.order.orderId}")
-
-                except Exception as e2:
-                    logger.error(f"Failed to place replacement order: {e2}")
-                    return None
+            try:
+                order = LimitOrder(
+                    action="BUY",
+                    totalQuantity=quantity,
+                    lmtPrice=current_credit,
+                    orderRef=order_ref,
+                    tif="DAY",
+                )
+                trade = ib.placeOrder(combo, order)
+                logger.debug(f"Replacement order placed - new Order ID: {trade.order.orderId}")
+            except Exception as e2:
+                logger.error(f"Failed to place replacement order: {e2}")
+                return None
 
         # ----------------------------------------------------------------
         # Wait for fill
         # ----------------------------------------------------------------
         if not interruptible_sleep_callable(sweep_wait_seconds):
-            if trade:
-                try:
-                    ib.cancelOrder(trade.order)
-                    logger.info("✓ Order cancelled by stop request")
-                except Exception as e:
-                    logger.debug(f"Order already cancelled: {e}")
+            _, filled = _cancel_then_check()
+            if filled > 0:
+                return _complete(filled)
+            logger.info("✓ Order cancelled by stop request")
             return None
 
         # ----------------------------------------------------------------
-        # Check if filled
+        # Check fill (voll ODER teilweise)
         # ----------------------------------------------------------------
-        if trade and getattr(trade.orderStatus, "status", "") == "Filled":
-            fill_price = trade.orderStatus.avgFillPrice
+        filled = _filled_qty(trade)
+        status = getattr(trade.orderStatus, "status", "") or ""
 
-            logger.debug("=" * 80)
-            logger.info("✅ ORDER FILLED ✅")
-            logger.debug("=" * 80)
-            logger.info(f"Fill credit: ${fill_price:.2f}, Quantity: {trade.orderStatus.filled}")
-            logger.debug(f"vs Reference credit: ${found_credit:.2f}")
+        if status == "Filled" or filled >= quantity:
+            return _complete(max(filled, quantity) if status == "Filled" else filled)
 
-            discount_pct = ((found_credit - fill_price) / found_credit) * 100
-            label = "Discount" if discount_pct >= 0 else "Premium"
-            direction = "below" if discount_pct >= 0 else "above"
-            logger.debug(f"{label}: {abs(discount_pct):.1f}% {direction} reference")
-
-            time_elapsed = (datetime.now() - start_time).total_seconds() / 60
-            logger.debug(f"Time elapsed since entry: {time_elapsed:.1f}m")
-
-            profit_target = None
-
-            if profit_target_enabled:
-                profit_target = place_profit_target_order(
-                    ib=ib,
-                    logger=logger,
-                    combo=combo,
-                    entry_credit=fill_price,
-                    quantity=int(quantity),
-                    profit_target_pct=profit_target_pct,
-                    profit_target_eth=profit_target_eth,
-                    order_ref=order_ref,
-                )
-
-            log_trade_callable(
-                trade,
-                fill_price,
-                quantity,
-                profit_target=profit_target,
-            )
-
-            return trade
+        if filled > 0:
+            # Teil-Fill: Rest stornieren, Endstand abwarten, dann abschließen
+            logger.warning(f"Partial fill detected: {filled}/{quantity} – cancelling remainder")
+            _, filled = _cancel_then_check()
+            return _complete(filled)
 
         # ----------------------------------------------------------------
-        # MAX ATTEMPTS reached → cancel and return
+        # MAX ATTEMPTS reached
         # ----------------------------------------------------------------
         if attempt >= max_sweep_attempts:
-            status = getattr(trade.orderStatus, "status", "") if trade else ""
-            filled = float(getattr(trade.orderStatus, "filled", 0) or 0) if trade else 0
-            remaining = float(getattr(trade.orderStatus, "remaining", 0) or 0) if trade else 0
-            total_qty = float(getattr(trade.order, "totalQuantity", 0) or 0) if trade else 0
+            _, filled = _cancel_then_check()
+            if filled > 0:
+                return _complete(filled)
 
-            if not (status == "Filled" or filled >= total_qty or remaining == 0):
-                logger.warning("")
-                logger.warning("=" * 80)
-                logger.warning(f"❌ MAX SWEEP ATTEMPTS REACHED ({max_sweep_attempts})")
-                logger.warning("=" * 80)
-                logger.warning(f"Order still not filled at ${current_credit:.2f}")
-                logger.warning("Cancelling order and returning to rescan...")
-                logger.warning("=" * 80)
-
-                if trade:
-                    try:
-                        ib.cancelOrder(trade.order)
-                        logger.info("✓ Order cancelled - sweep completed")
-                    except Exception as e:
-                        logger.debug(f"Error cancelling order: {e}")
-
-                return None
+            logger.warning("")
+            logger.warning("=" * 80)
+            logger.warning(f"❌ MAX SWEEP ATTEMPTS REACHED ({max_sweep_attempts})")
+            logger.warning("=" * 80)
+            logger.warning(f"Order still not filled at ${current_credit:.2f}")
+            logger.warning("Cancelling order and returning to rescan...")
+            logger.warning("=" * 80)
+            logger.info("✓ Order cancelled - sweep completed")
+            return None
 
         # ----------------------------------------------------------------
-        # Not filled → step towards market (less negative)
-        # Use Decimal arithmetic throughout to avoid float artifacts
-        # (e.g. -0.36 + 0.02 = -0.33999... in float → snaps 2 ticks).
+        # Step towards market (less negative)
         # ----------------------------------------------------------------
         next_credit = float(
             Decimal(str(current_credit)) + Decimal(str(sweep_step))
         )
 
-        # Safety: if somehow still no progress, force one tick via quantize
         if next_credit <= current_credit:
             next_credit = _quantize_up(current_credit + sweep_step, sweep_step)
 
         current_credit = next_credit
 
     # ------------------------------------------------------------------------
-    # SWEEP EXHAUSTED - No fill achieved
+    # SWEEP EXHAUSTED (Ceiling) - erst stornieren, dann Fill prüfen!
     # ------------------------------------------------------------------------
     if trade:
-        try:
-            ib.cancelOrder(trade.order)
-            logger.info("✓ Order cancelled - sweep exhausted")
-        except Exception as e:
-            logger.debug(f"Order already cancelled: {e}")
+        _, filled = _cancel_then_check()
+        if filled > 0:
+            return _complete(filled)
+        logger.info("✓ Order cancelled - sweep exhausted")
 
     reason = (
         f"Price ceiling reached (${max_sweep_price:.2f})"

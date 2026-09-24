@@ -1,27 +1,25 @@
 # manual/_schedules.txt
 # Tooltip-Texte für den Schedule-Editor (create_schedule_editor_tab / init_schedule_editor_form).
-# Format je Zeile: KEY=Tooltip-Text
-#   - "\n" im Text wird als Zeilenumbruch interpretiert
 #   - Zeilen mit "#" am Anfang und Leerzeilen werden ignoriert
 #   - Fehlt ein KEY, wird das zugehörige Widget einfach übersprungen (kein Absturz)
 
 ##SCHEDULE_NAME
->Eindeutiger Schedule-Name.\nWird u.a. als SCHEDULE_NAME im Trade-Report (CSV), als Order-Referenz und im Windows-Taskplaner (Task-Name) verwendet.
+>Eindeutiger Schedule-Name. Wird u.a. als SCHEDULE_NAME im Trade-Report (CSV), als Order-Referenz und im Windows-Taskplaner (Task-Name) verwendet.
 
 ##TEMPLATE
->Verknüpftes Trade-Template.\nLegt Trade-Typ, Legs/Strikes, Sweep-Preisgrenzen und Profit-Target-Logik fest. Der Schedule bestimmt nur WANN und UNTER WELCHEN BEDINGUNGEN gehandelt wird.
+>Verknüpftes Trade-Template. Legt Trade-Typ, Legs/Strikes, Sweep-Preisgrenzen und Profit-Target-Logik fest. Der Schedule bestimmt nur WANN und UNTER WELCHEN BEDINGUNGEN gehandelt wird.
 
 ##QTY_MODE
 >Quantity-Modus. Aktuell nur 'FixedQty' verfügbar: es wird immer die fest eingestellte Anzahl Kontrakte gehandelt (kein dynamisches Buying-Power-Sizing).
 
 ##QTY
->>Feste Kontraktanzahl pro Trade (QUANTITY.QTY).\nGilt pro Ausführung dieses Schedules, unabhängig vom Credit.
+>>Feste Kontraktanzahl pro Trade (QUANTITY.QTY). Gilt pro Ausführung dieses Schedules, unabhängig vom Credit.
 
 ##EXECUTION_TIME
->Ziel-Uhrzeit für den Trading-Einstieg (EXECUTION_TIME), in US-Eastern-Zeit (ET) - unabhängig von der lokalen Zeitzone des PCs.\nDer Bot wartet bis zu dieser Zeit; bei aktivierter Zeitprüfung wird nach Ablauf eines 15-Minuten-Grace-Fensters kein Trade mehr ausgelöst.
+>Ziel-Uhrzeit für den Trading-Einstieg (EXECUTION_TIME), in US-Eastern-Zeit (ET) - unabhängig von der lokalen Zeitzone des PCs. Der Bot wartet bis zu dieser Zeit; bei aktivierter Zeitprüfung wird nach Ablauf eines 15-Minuten-Grace-Fensters kein Trade mehr ausgelöst.
 
 ##EXPIRATION_MINUTES
->Zeitfenster ab Order-Platzierung, innerhalb dessen der Credit-Sweep laufen darf.\nWird dieses Fenster überschritten, ohne dass die Order gefüllt wurde, wird die Order storniert und kein Trade ausgeführt.
+>Zeitfenster ab Order-Platzierung, innerhalb dessen der Credit-Sweep laufen darf. Wird dieses Fenster überschritten, ohne dass die Order gefüllt wurde, wird die Order storniert und kein Trade ausgeführt.
 
 ##DAYS_TO_EXECUTE
 >>Wochentage, an denen dieses Schedule vom Scheduler-Service ausgeführt wird (WEEKDAY_FILTER.DAYS). Keine Auswahl = Standard Mo-Fr.
@@ -30,7 +28,7 @@
 >>Optional: Schedule nur in einer bestimmten Kalenderwoche des Monats ausführen (WEEKDAY_FILTER.WEEK_OF_MONTH). 'Jede Woche' = keine Einschränkung.
 
 ##ENTRY_CONDITIONS_GROUP
->Zusätzliche Einstiegsbedingungen (ENTRY_CONDITIONS).\nAlle aktivierten Bedingungen werden UND-verknüpft geprüft - erst wenn alle erfüllt sind, wird ein Trade ausgelöst. Deaktiviert = Bot handelt immer (sofern Markt/Zeit passen).
+>Zusätzliche Einstiegsbedingungen (ENTRY_CONDITIONS). Alle aktivierten Bedingungen werden UND-verknüpft geprüft - erst wenn alle erfüllt sind, wird ein Trade ausgelöst. Deaktiviert = Bot handelt immer (sofern Markt/Zeit passen).
 
 ##RSI_ENABLE
 >Aktiviert die RSI-Filterbedingung: Trade nur, wenn der RSI(Periode) im Bereich [Min, Max] liegt.
@@ -54,16 +52,16 @@
 >Aktiviert die Intraday-Move-Bedingung (INTRADAY_MOVE): Trade nur, wenn die prozentuale Bewegung seit Handelseröffnung mindestens 'Min %' beträgt.
 
 ##INTRADAY_MIN_PCT
->Mindest-Kursbewegung seit Open in Prozent (INTRADAY_MOVE.MIN_PCT).\nPositive Werte = Kurs muss um mind. X% gestiegen sein.
+>Mindest-Kursbewegung seit Open in Prozent (INTRADAY_MOVE.MIN_PCT). Positive Werte = Kurs muss um mind. X% gestiegen sein.
 
 ##COND_ORDER_LIST
->Reihenfolge per Drag & Drop ändern - bestimmt ORDER (ab 2).\nWEEKDAY_FILTER läuft unabhängig davon immer zuerst (ORDER 1).
+>Reihenfolge per Drag & Drop ändern - bestimmt ORDER (ab 2). WEEKDAY_FILTER läuft unabhängig davon immer zuerst (ORDER 1).
 
 ##RAMP_UP_TIME
->Vorlaufzeit vor der Execution Time, zu der der Bot-Prozess bereits vom Scheduler-Service gestartet wird (Trigger-Zeit = Execution Time minus Ramp Up Time).\nNötig, damit IB-Verbindung, Marktdaten & Chain-Preload rechtzeitig bereitstehen.
+>Vorlaufzeit vor der Execution Time, zu der der Bot-Prozess bereits vom Scheduler-Service gestartet wird (Trigger-Zeit = Execution Time minus Ramp Up Time). Nötig, damit IB-Verbindung, Marktdaten & Chain-Preload rechtzeitig bereitstehen.
 
 ##MAX_RUNTIME
->Maximale Laufzeit ab Execution Time, nach der der Bot-Prozess vom Scheduler-Service zwangsweise beendet wird (erst sauber per Strg+C, dann taskkill).\n0 = kein Zeitlimit.
+>Maximale Laufzeit ab Execution Time, nach der der Bot-Prozess vom Scheduler-Service zwangsweise beendet wird (erst sauber per Strg+C, dann taskkill). 0 = kein Zeitlimit.
 
 ##SCHEDULE_ACTIVE
->Schedule aktivieren/deaktivieren.\nDeaktivierte Schedules werden vom Scheduler-Service übersprungen (kein Task-Trigger), bleiben aber gespeichert.
+>Schedule aktivieren/deaktivieren. Deaktivierte Schedules werden vom Scheduler-Service übersprungen (kein Task-Trigger), bleiben aber gespeichert.
