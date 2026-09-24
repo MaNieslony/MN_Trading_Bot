@@ -86,11 +86,11 @@
     <Content Include="tradetype\__pycache__\__init__.cpython-313.pyc" />
     <Content Include="ui\favicon.ico" />
     <Content Include="ui\favicon.png" />
-    <Content Include="ui\manual\NDX.txt" />
     <Content Include="ui\manual\_bull_put.txt" />
     <Content Include="ui\manual\_common.txt" />
     <Content Include="ui\manual\_iron_condor.txt" />
     <Content Include="ui\manual\_pbw.txt" />
+    <Content Include="ui\manual\_schedule.txt" />
     <Content Include="ui\pxo\active1.PNG" />
     <Content Include="ui\pxo\Capture1.PNG" />
     <Content Include="ui\pxo\Capture2.PNG" />

@@ -34,18 +34,20 @@ vorhanden und hat keinen Effekt auf den Trade.
 ###NDX Delta/Strike Steering (nur SYMBOL=NDX bzw. TEMPLATENAME beginnt mit "NDX")
 
 ##DELTA_TARGET_OFFSET
->Abstand (in Delta-Punkten, z.B. 0.2 = 0,2) zwischen Ziel-Delta und der
-unteren Delta-Grenze. delta_min = target - offset, bleibt über alle Rescans
-fix.
+>Abstand in Delta-PUNKTEN (nicht in Delta) zwischen Ziel-Delta und unterer Delta-Grenze:
+0.2 = 0,2 Punkte = 0,002 Delta. Bei LEG1_TARGET=2 (0,02) ergibt sich delta_min = 0,018.
+Bleibt über alle Rescans fix (Untergrenze mind. 0,0001).
 
 ##DELTA_MAX_ABS
->Absolute Obergrenze (in Delta-Punkten) für die obere Delta-Grenze, unabhängig
-davon, wie weit die Rescan-Expansion sie theoretisch treiben würde.
+>Absolute Obergrenze der oberen Delta-Grenze in Delta-Punkten (5 = 0,05), unabhängig davon,
+wie weit die Rescan-Expansion sie theoretisch treiben würde.
 
 ##DELTA_RESCAN_EXPANSION
->Erweiterung der oberen Delta-Grenze pro Rescan-Durchlauf (in Delta-Punkten).
-rescan=0 -> Ziel-Delta, rescan=1 -> +1x Expansion, rescan=2 -> +2x usw., bis
-DELTA_MAX_ABS erreicht ist.
+>Erweiterung der oberen Delta-Grenze pro Rescan in Delta-Punkten (0.5 = 0,005 Delta):
+Rescan 0 -> Ziel-Delta, Rescan 1 -> +1x Expansion, Rescan 2 -> +2x usw., gedeckelt durch
+DELTA_MAX_ABS. Auswahl: Rescan 0 = Strike mit Delta am nächsten am Ziel, ab Rescan 1 =
+höchstes Delta im erlaubten Bereich (bei Gleichstand mehr Credit). Ab Rescan 1 werden
+die Deltas außerdem neu von IB geladen.
 
 ##SHORT_LEG_MID_MIN
 >Untere Grenze für den Mid-Preis des Short-Legs in $. Kandidaten außerhalb

@@ -43,19 +43,25 @@ am Markt liegen, bevor sie zum nächsten (weniger vorteilhaften) Preis
 nachgezogen wird.
 
 ##SWEEP_STEP
->Preisschritt pro Sweep-Versuch in $. Der Bot bewegt den Limit-Preis nach jedem
-erfolglosen Versuch um diesen Betrag Richtung MAX_SWEEP_PRICE (weniger Credit).
+>Preisschritt pro Sweep-Versuch in $ (Richtung MAX_SWEEP_PRICE, weniger Credit).
+Der Wert muss zum Tick passen (interne Preisrundung: 0,02 $ NDX, sonst 0,05 $).
 
 ##START_SWEEP_QUANTILE
->Position des Startpreises zwischen rechnerischem Geldkurs (0.0, meiste Credit)
-und Briefkurs/Natural Credit (1.0, wenigste Credit, sicherster Fill). Default
-0.25 = oberes Viertel, näher am Geldkurs. Wird zusätzlich durch MAX_SWEEP_PRICE
-gedeckelt.
+>Lage des Startpreises zwischen rechnerischem Geldkurs (0.0 = meiste Credit, berechnet als
+2 x Mid - Natural) und Briefkurs/Natural Credit (1.0 = wenigste Credit, sicherster Fill);
+0.5 = Mid. Default im Bot, wenn das Feld im Template fehlt: 0.5 (Mid). Der Startpreis wird
+auf SWEEP_STEP quantisiert und nur nach oben durch MAX_SWEEP_PRICE gedeckelt (nicht durch
+MIN_SWEEP_PRICE). Ohne gültigen Natural Credit startet der Bot am Mid.
 
 ##MAX_RESCAN_ATTEMPTS
->Maximale Anzahl an Rescan-Durchläufen pro Trading-Zyklus, wenn ein Sweep
-erfolglos bleibt. Nach jedem Rescan wird der Strike/Delta neu bewertet. Sind
-alle Versuche ausgeschöpft, bricht der Bot für den Tag ohne Trade ab.
+>Gesamtzahl der Scan-Durchläufe pro Trading-Zyklus INKLUSIVE des ersten Scans (Default 4 =
+1 Scan + 3 Rescans). Ein Durchlauf endet ohne Trade, wenn keine Deltas/Strikes gefunden
+werden, das Pricing scheitert (z.B. Credit außerhalb [MIN/MAX_SWEEP_PRICE]) oder der Sweep
+nicht füllt. Vor jedem Rescan wartet der Bot 5 s und holt den Kurs neu. Neu bewertet wird
+mit den vorhandenen Daten: Iron Condor holt bei jedem Durchlauf Deltas neu, NDX-50BPS ab
+Rescan 1, Bull Put nutzt weiter den Delta-Cache (max. 300 s alt), PBW nur den neuen Kurs.
+Sind alle Durchläufe verbraucht, beendet sich der Bot ohne Trade (Single-Run, kein
+erneuter Versuch am selben Tag).
 
 ##PROFIT_TARGET_ENABLED
 >Schaltet die automatische GTC-Exit-Order nach dem Fill ein/aus. Deaktiviert =

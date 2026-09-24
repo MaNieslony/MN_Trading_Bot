@@ -1,7 +1,6 @@
-# manual/_schedules.txt
-# Tooltip-Texte für den Schedule-Editor (create_schedule_editor_tab / init_schedule_editor_form).
-#   - Zeilen mit "#" am Anfang und Leerzeilen werden ignoriert
-#   - Fehlt ein KEY, wird das zugehörige Widget einfach übersprungen (kein Absturz)
+# manual/_schedule.txt
+# Tooltip-Texte für den Schedule-Editor. Format wie die anderen manual-Dateien:
+# ##KEY, darunter >Text (einfaches ">", Text darf über mehrere Zeilen gehen).
 
 ##SCHEDULE_NAME
 >Eindeutiger Schedule-Name. Wird u.a. als SCHEDULE_NAME im Trade-Report (CSV), als Order-Referenz und im Windows-Taskplaner (Task-Name) verwendet.

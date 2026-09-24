@@ -12,12 +12,17 @@ zum Underlying-Kurs, negativ = unterhalb (OTM Put). Bei "NearestATM" wird
 dieser Wert ignoriert.
 
 ##LEG1_DTE
->Days to Expiration, bestimmt die Expiry für ALLE drei Legs (siehe
-cycle_steps.select_expiry, nutzt ausschließlich LEG1_DTE).
+>Days to Expiration, bestimmt die Expiry für ALLE drei Legs (siehe cycle_steps.select_expiry,
+nutzt ausschließlich LEG1_DTE). Bei Werten < 30 = heute + LEG1_DTE Kalendertage ohne Abgleich
+mit den verfügbaren Verfallstagen: fällt das Datum auf Wochenende/Feiertag, wird nicht
+getradet. Ab 30: beste verfügbare Expiry im Fenster [Ziel-DTE-10, Ziel-DTE+10].
 
 ##LEG2_TARGET_TYPE
->Muss "StrikeOffset_Leg1" sein – der untere Wing (LEG2) wird relativ zum
-Body-Strike (LEG1) berechnet. Andere Werte lässt der Bot nicht zu.
+>Abstand des unteren Wings (Long Put, LEG2) zum Body-Strike (LEG1) in Punkten, negativ =
+darunter. |LEG2_TARGET| ≠ LEG3_TARGET ergibt den "Broken Wing" (asymmetrisches Risiko/Reward
+je Seite). Der Bot nimmt den nächstliegenden vorhandenen Strike; liegt dieser weiter als
+1,1 x Strike-Raster vom Ziel entfernt oder außerhalb des Chain-Fensters, wird kein Trade
+ausgelöst.
 
 ##LEG2_TARGET
 >Abstand des unteren Wings (Long Put, LEG2) zum Body-Strike (LEG1) in Punkten,
