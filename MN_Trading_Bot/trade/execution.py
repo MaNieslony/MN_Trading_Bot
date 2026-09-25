@@ -149,6 +149,38 @@ def _cancel_and_wait(*, ib, logger, trade, timeout: float = 8.0) -> bool:
     ib.sleep(0.5)
     return True
 
+def _wait_for_partial_fill_grace(
+    *,
+    trade,
+    quantity: int,
+    grace_seconds: float,
+    interruptible_sleep_callable,
+    expiration_time: datetime,
+    poll_interval: float = 1.0,
+) -> int:
+    """
+    Wartet nach einem Teil-Fill bis zu grace_seconds WEITERE Sekunden auf
+    denselben, unverändert resting Order (KEIN Preis-Update), falls der Rest
+    zum selben Preis noch nachzieht. Bricht sofort ab bei Vollfill, Erreichen
+    des Expiration-Fensters oder Stop-Request (interruptible_sleep_callable
+    liefert dann False).
+
+    Rückgabe: aktuelle filled_qty nach dem Warten (>= dem vorherigen Wert).
+    """
+    waited = 0.0
+    while waited < grace_seconds:
+        if _filled_qty(trade) >= quantity or _is_done(trade):
+            break
+        if datetime.now() >= expiration_time:
+            break
+
+        step = min(poll_interval, grace_seconds - waited)
+        if not interruptible_sleep_callable(step):
+            break
+        waited += step
+
+    return _filled_qty(trade)
+
 def execute_credit_sweep(
     *,
     ib,
@@ -173,6 +205,7 @@ def execute_credit_sweep(
     profit_target_pct: float,
     profit_target_eth: bool,
     start_sweep_quantile: float = 0.25,
+    partial_fill_grace_seconds: float = 0.0,
 ):
     """
     Credit-Sweep mit lückenloser Fill-Erkennung.
@@ -180,8 +213,13 @@ def execute_credit_sweep(
     Grundregel: JEDER Exit-Pfad (Ceiling, Max-Attempts, Expiration, Stop-Request,
     Cancel/Replace) storniert die Order per _cancel_and_wait() und prüft
     DANACH _filled_qty(). Wurde irgendetwas gefillt (auch teilweise), gilt der
-    Trade als ausgeführt (Partial Fill = complete, Rest ist storniert) und es
-    gibt KEINEN weiteren Rescan/Sweep -> keine Doppel-Trades.
+    Trade als ausgeführt und es gibt KEINEN weiteren Rescan/Sweep.
+
+    partial_fill_grace_seconds (Default 0 = deaktiviert): Wird nach dem
+    normalen Wartefenster ein Teil-Fill festgestellt, wird NICHT sofort
+    storniert, sondern bis zu N weitere Sekunden bei UNVERÄNDERTEM Preis
+    gewartet, falls der Rest zum selben Preis noch nachzieht. Danach wie
+    gehabt: Rest stornieren, Teil-Fill = complete.
     """
 
     # --------------------------------------------------------------------
@@ -230,6 +268,8 @@ def execute_credit_sweep(
     logger.debug(f"Sweep wait seconds: {sweep_wait_seconds}s")
     logger.debug(f"Max sweep attempts: {max_sweep_attempts}")
     logger.debug(f"Expiration window: {expiration_minutes} minutes")
+    if partial_fill_grace_seconds > 0:
+        logger.debug(f"Partial fill grace: {partial_fill_grace_seconds:.0f}s (same price)")
 
     order = None
     trade = None
@@ -375,8 +415,28 @@ def execute_credit_sweep(
             return _complete(max(filled, quantity) if status == "Filled" else filled)
 
         if filled > 0:
-            # Teil-Fill: Rest stornieren, Endstand abwarten, dann abschließen
-            logger.warning(f"Partial fill detected: {filled}/{quantity} – cancelling remainder")
+            if partial_fill_grace_seconds > 0:
+                logger.info(
+                    f"Partial fill {filled}/{quantity} @ ${current_credit:.2f} – "
+                    f"waiting up to {partial_fill_grace_seconds:.0f}s more at same price for the remainder"
+                )
+                filled = _wait_for_partial_fill_grace(
+                    trade=trade,
+                    quantity=quantity,
+                    grace_seconds=partial_fill_grace_seconds,
+                    interruptible_sleep_callable=interruptible_sleep_callable,
+                    expiration_time=expiration_time,
+                )
+
+                if filled >= quantity or getattr(trade.orderStatus, "status", "") == "Filled":
+                    logger.info(f"✓ Remainder filled during grace period ({filled}/{quantity})")
+                    return _complete(filled)
+
+                logger.warning(
+                    f"Remainder not filled within grace period – cancelling remaining {quantity - filled}"
+                )
+
+            # Rest stornieren, Endstand abwarten, dann abschließen
             _, filled = _cancel_then_check()
             return _complete(filled)
 

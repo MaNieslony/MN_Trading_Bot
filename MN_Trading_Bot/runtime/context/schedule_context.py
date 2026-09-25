@@ -73,6 +73,15 @@ class ScheduleContext:
         bot.START_SWEEP_QUANTILE = float(cfg.get("START_SWEEP_QUANTILE", 0.5))
 
         # ------------------------------------------------------------
+        # Teil-Fill-Grace: nach einem Teil-Fill wird bis zu N Sekunden bei
+        # UNVERÄNDERTEM Preis weitergewartet, ob der Rest zum selben Preis
+        # nachzieht, bevor storniert wird. Default 0 = deaktiviert (bisheriges
+        # Verhalten: sofortiges Stornieren bei Teil-Fill).
+        # Optional pro Template über "PARTIAL_FILL_GRACE_SECONDS".
+        # ------------------------------------------------------------
+        bot.PARTIAL_FILL_GRACE_SECONDS = float(cfg.get("PARTIAL_FILL_GRACE_SECONDS", 60))
+
+        # ------------------------------------------------------------
         # Optional NDX scan parameters (present only in some templates)
         # ------------------------------------------------------------
         bot.STRIKE_UPPER_OFFSET = cfg.get("STRIKE_UPPER_OFFSET")

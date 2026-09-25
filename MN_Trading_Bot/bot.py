@@ -355,6 +355,7 @@ class Bot:
             profit_target_pct=self.PROFIT_TARGET_PCT,
             profit_target_eth=self.PROFIT_TARGET_ETH,
             start_sweep_quantile=self.START_SWEEP_QUANTILE,
+            partial_fill_grace_seconds=self.PARTIAL_FILL_GRACE_SECONDS,
         )
 
     def create_combo_contract(self,expiry: str,leg1: float,leg2: float,trading_class: str,):
