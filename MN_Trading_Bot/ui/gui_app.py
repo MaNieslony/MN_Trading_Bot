@@ -581,6 +581,11 @@ TELEGRAM_FILE = CONFIG_DIR / "telegram_settings.json"
 
 SERVICE_NAME = "MN Trading Bot Scheduler"
 
+# Analog zu service_runner.py: Ort des (geteilten) Bot-Skripts + Arbeitsverzeichnis
+# für Instant-Trade-Läufe aus der GUI.
+SHARED_BOT_SCRIPT = Path("C:/MN_Trading_Bot/bot.py")
+BOT_WORKING_DIR = CONFIG_DIR.parent   # %userprofile%/mn_bot
+
 DAY_ABBR_TO_FULL = {
     "MON": "MONDAY", "TUE": "TUESDAY", "WED": "WEDNESDAY",
     "THU": "THURSDAY", "FRI": "FRIDAY", "SAT": "SATURDAY", "SUN": "SUNDAY",
@@ -1423,11 +1428,18 @@ class TradingBotUI(QMainWindow):
             status_item = QTableWidgetItem("🔴 Deaktiviert" if disabled else "🟢 Aktiv")
             self.sched_table.setItem(row, 3, status_item)
 
-            btn_instant = QPushButton("🔒 Instant")
-            btn_instant.setObjectName("btn_locked")
-            btn_instant.setEnabled(False)
+            schedule_name = s.get("NAME", "")
+
+            btn_instant = QPushButton("⚡ Instant")
+            btn_instant.setObjectName("btn_accent")
             btn_instant.setMinimumSize(120, 30)
-            btn_instant.setToolTip("Instant Trade – kommt in einer zukünftigen Version")
+            btn_instant.setToolTip(
+                "Startet dieses Schedule SOFORT (Execution-Time-Prüfung wird "
+                "für diesen Lauf übersprungen; alle anderen Bedingungen bleiben aktiv)."
+            )
+            btn_instant.clicked.connect(
+                lambda _checked, name=schedule_name: self.start_instant_trade(name)
+            )
 
             btn_test = QPushButton("🔒 Test")
             btn_test.setObjectName("btn_locked")
@@ -1446,6 +1458,78 @@ class TradingBotUI(QMainWindow):
             self.sched_table.setCellWidget(row, 6, btn_preview)
 
         self.refresh_today_preview()
+
+    def _resolve_console_python(self) -> str:
+        """
+        gui_app.py läuft normalerweise über pythonw.exe (siehe start_ui.vbs),
+        das aber keine Konsolenausgabe liefert. Für Instant Trade brauchen
+        wir die Konsolen-Variante (python.exe) aus derselben Installation,
+        sonst bleibt das Fenster leer bzw. zeigt keine Logs/Fehler.
+        """
+        current = Path(sys.executable)
+        candidate = current.with_name("python.exe")
+        if candidate.exists():
+            return str(candidate)
+        return str(current)
+
+    def start_instant_trade(self, schedule_name: str):
+        """
+        Startet bot.py für 'schedule_name' sofort mit --instant, d.h. die
+        EXECUTION_TIME-Prüfung wird für diesen einen Lauf übersprungen.
+        Market Open, Entry Conditions und Already-Traded-Today greifen
+        unverändert (siehe bot.py: Bot.__init__ / trading_cycle.py).
+
+        Baut den "cmd /c "..."" -Aufruf selbst zusammen und startet ihn mit
+        shell=False (Standard), NICHT shell=True: Python setzt bei
+        shell=True intern wShowWindow=SW_HIDE, wodurch das Konsolenfenster
+        unsichtbar bliebe. Ohne shell=True + creationflags=CREATE_NEW_CONSOLE
+        erscheint das Fenster normal sichtbar, so wie bei run_bot.bat.
+        "& pause" läuft IMMER (anders als "&&"), egal ob der Bot-Prozess
+        erfolgreich durchläuft oder mit Fehler abbricht.
+        """
+        reply = QMessageBox.question(
+            self,
+            "Instant Trade",
+            f"Schedule '{schedule_name}' JETZT sofort starten?\n\n",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        if not SHARED_BOT_SCRIPT.exists():
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"bot.py wurde nicht gefunden unter:\n{SHARED_BOT_SCRIPT}"
+            )
+            return
+
+        try:
+            python_exe = self._resolve_console_python()
+            script = str(SHARED_BOT_SCRIPT)
+            window_title = f"MN Trading Bot - INSTANT - {schedule_name}"
+
+            full_command = (
+                f'cmd /c "title {window_title} & '
+                f'"{python_exe}" -u "{script}" --schedule "{schedule_name}" --instant '
+                f'& echo. & echo ===== Bot-Process finished (window stays open, press any key to close) ===== '
+                f'& pause"'
+            )
+
+            creationflags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+
+            subprocess.Popen(
+                full_command,
+                cwd=str(BOT_WORKING_DIR),
+                creationflags=creationflags,
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Instant Trade konnte nicht gestartet werden:\n{e}"
+            )
 
     def _compute_schedule_today_status(self, sched: dict):
         if sched.get("DISABLED", False):

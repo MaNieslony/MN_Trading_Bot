@@ -63,7 +63,7 @@ import argparse
 
 class Bot:
     """Bot Class"""
-    def __init__(self, selected_schedule: str = None):
+    def __init__(self, selected_schedule: str = None, instant_trade: bool = False):
         self.running = True
         self.trade_in_progress = False
         self.selected_schedule = selected_schedule
@@ -83,6 +83,18 @@ class Bot:
         self.CHECK_EXECUTION_TIME = settings["CHECK_EXECUTION_TIME"]
         self.CHECK_MARKET_OPEN = settings["CHECK_MARKET_OPEN"]
         self.TRADE_REPORT_CSV = settings.get("TRADE_REPORT_CSV","reports/mn_trading_trade_report.csv")
+
+         # ------------------------------------------------------------
+        # Instant Trade (GUI "Instant Trade"-Button): überspringt für DIESEN
+        # Lauf ausschließlich die EXECUTION_TIME-Prüfung. Market Open, Entry
+        # Conditions und Already-Traded-Today bleiben unverändert aktiv.
+        # ------------------------------------------------------------
+        self.INSTANT_TRADE = bool(instant_trade)
+        if self.INSTANT_TRADE:
+            self.CHECK_EXECUTION_TIME = False
+            self.logger.warning(
+                "⚡ INSTANT TRADE aktiv – Execution-Time-Prüfung für diesen Lauf deaktiviert"
+            )
 
         # ------------------------------------------------------------
         # Load schedules + select by name + apply config to flat attributes + create TradeType instance
@@ -555,6 +567,11 @@ if __name__ == '__main__':
         required=True,
         help="Name des Schedules aus schedules.json (z.B. SPX-MORNING)"
     )
+    parser.add_argument(
+        "--instant",
+        action="store_true",
+        help="Instant Trade: startet sofort ohne Prüfung der EXECUTION_TIME"
+    )
     args = parser.parse_args()
 
     def signal_handler(_sig, _frame):
@@ -578,7 +595,7 @@ if __name__ == '__main__':
 
     try:
         util.patchAsyncio()
-        bot = Bot(selected_schedule=args.schedule)
+        bot = Bot(selected_schedule=args.schedule, instant_trade=args.instant)
         bot.run()
         sys.exit(0)
 
