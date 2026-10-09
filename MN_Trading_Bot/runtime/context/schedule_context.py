@@ -185,7 +185,6 @@ class ScheduleContext:
         # Optional RUT Iron Condor steering parameters
         # ------------------------------------------------------------
         bot.IV_RANK_MATRIX = cfg.get("IV_RANK_MATRIX")
-        bot.IV_RANK_LOOKBACK_DAYS = cfg.get("IV_RANK_LOOKBACK_DAYS", 365)
         # NEU: manueller IV-Rank-Override (z.B. 21). Wenn gesetzt, wird die
         # Live-Berechnung via bot.get_iv_rank() komplett übersprungen.
         # Default None = bestehendes Verhalten (Live-Berechnung).

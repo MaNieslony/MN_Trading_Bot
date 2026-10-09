@@ -8,10 +8,6 @@
 überspringt. Aktiviert = fester Wert wird in die IV_RANK_MATRIX eingespeist.
 Deaktiviert (None) = Live-Berechnung bei jedem Trading-Zyklus.
 
-##IV_RANK_LOOKBACK_DAYS
->Lookback-Zeitraum in Tagen für die IV-Rank-Berechnung (Min/Max der historischen
-implizierten Volatilität). Nur relevant, wenn IV_RANK_OVERRIDE deaktiviert ist.
-
 ##LATE_ENTRY_CUTOFF_ET
 >ET-Uhrzeit, ab der ein Late-Entry angenommen wird. Nach Erreichen/Überschreiten
 dieser Zeit wird die per IV-Rank-Matrix ermittelte Ziel-DTE automatisch um 1

@@ -2460,14 +2460,6 @@ class TradingBotUI(QMainWindow):
         override_layout.addWidget(spin_override)
         self.template_iv_override_checks[idx] = (chk_override, spin_override)
 
-        # --- IV_RANK_LOOKBACK_DAYS ---
-        lookback = QSpinBox()
-        lookback.setRange(30, 3650)
-        lookback.setSuffix(" Tage")
-        lookback.setValue(int(tmpl.get("IV_RANK_LOOKBACK_DAYS", 365)))
-        lookback.valueChanged.connect(lambda val, i=idx: self.update_template_val(i, "IV_RANK_LOOKBACK_DAYS", val))
-        _apply_tooltip(lookback, tooltips, "IV_RANK_LOOKBACK_DAYS")
-
         # --- LATE_ENTRY_CUTOFF_ET ---
         cutoff = QTimeEdit()
         cutoff.setDisplayFormat("HH:mm:ss")
@@ -2479,7 +2471,6 @@ class TradingBotUI(QMainWindow):
         _apply_tooltip(cutoff, tooltips, "LATE_ENTRY_CUTOFF_ET")
 
         form.addRow("IV-Rank Override:", override_widget)
-        form.addRow("IV-Rank Lookback:", lookback)
         form.addRow("Late-Entry Cutoff (ET):", cutoff)
 
         # --- IV_RANK_MATRIX (Tabelle: MIN_IV_RANK / MAX_DTE / DELTA_LIMIT) ---

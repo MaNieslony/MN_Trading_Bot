@@ -39,7 +39,7 @@ def get_open_price(
                 durationStr='1 D',
                 barSizeSetting='1 day',
                 whatToShow='TRADES',
-                useRTH=True,
+                useRTH=False,
                 formatDate=1
             )
 
@@ -280,20 +280,59 @@ def get_vix_price(
         logger.error(f"Error getting VIX price: {e}")
         return None
 
+from typing import Optional, Callable, Dict, Any
+from ib_insync import Contract
+
+from typing import Optional, Callable, Dict, Any
+from ib_insync import Contract
+
+
+from typing import Optional, Callable, Dict, Any
+from ib_insync import Contract
+
+
+def _extract_iv_extremes(config: Optional[Any], symbol: str) -> Optional[Dict[str, float]]:
+    """Extrahiert 52W-Extremwerte (low/high) für ein Symbol aus der Template-Konfiguration."""
+    if not config:
+        return None
+
+    symbol_key = symbol.upper()
+    templates = config.values() if isinstance(config, dict) else (config if isinstance(config, list) else [])
+
+    for template in templates:
+        if not isinstance(template, dict):
+            continue
+
+        # 1. Strukturiert: "IV_52W_EXTREMES": {"RUT": {"low": ..., "high": ...}}
+        extremes = template.get("IV_52W_EXTREMES")
+        if isinstance(extremes, dict):
+            if symbol_key in extremes:
+                return extremes[symbol_key]
+            if "low" in extremes and "high" in extremes:
+                return extremes
+
+        # 2. Flach: "IV_52W_LOW" / "IV_52W_HIGH"
+        if template.get("SYMBOL", "").upper() == symbol_key:
+            if "IV_52W_LOW" in template and "IV_52W_HIGH" in template:
+                return {
+                    "low": float(template["IV_52W_LOW"]),
+                    "high": float(template["IV_52W_HIGH"]),
+                }
+
+    return None
+
+
 def get_iv_rank(
     *,
     ib,
     symbol: str,
-    get_index_contract_callable,
-    lookback_days: int = 365,
+    get_index_contract_callable: Callable[[], Contract],
     logger,
-) -> Optional[float]:
+    config: Optional[Any] = None,
+) -> Optional[int]:
     """
-    Berechnet den IV Rank über den historischen IV-Bereich (lookback_days).
-    IV Rank = (aktuelle IV - Min IV) / (Max IV - Min IV) * 100
-
-    Hinweis: Wird bei gesetztem bot.IV_RANK_OVERRIDE nicht aufgerufen
-    (siehe trade/cycle_steps.select_expiry_iron_condor).
+    Berechnet den IV Rank = (aktuelle IV - Min IV) / (Max IV - Min IV) * 100
+    Gibt den IV Rank als ganze Zahl (Integer) zurück.
     """
     try:
         contract = get_index_contract_callable()
@@ -302,44 +341,108 @@ def get_iv_rank(
         bars = ib.reqHistoricalData(
             contract,
             endDateTime='',
-            durationStr=f'{int(lookback_days)} D',
+            durationStr='30 D',
             barSizeSetting='1 day',
             whatToShow='OPTION_IMPLIED_VOLATILITY',
             useRTH=True,
             formatDate=1,
         )
 
-        if not bars or len(bars) < 2:
-            logger.warning(
-                f"Insufficient IV history for IV Rank "
-                f"(got {len(bars) if bars else 0} bars, lookback={lookback_days}d)"
-            )
+        valid = [b for b in (bars or []) if b.close is not None and b.close > 0]
+        if not valid:
+            logger.warning(f"Keine validen IV-Daten für {symbol} erhalten")
             return None
 
-        iv_values = [bar.close for bar in bars if bar.close is not None]
+        current_iv = valid[-1].close
+        extremes = _extract_iv_extremes(config, symbol)
 
-        if len(iv_values) < 2:
-            logger.warning("Insufficient valid IV values for IV Rank")
+        if extremes and "low" in extremes and "high" in extremes:
+            lo_52w, hi_52w = extremes["low"], extremes["high"]
+            source_info = "JSON-Calibration"
+        else:
+            closes = [b.close for b in valid]
+            lo_52w, hi_52w = min(closes), max(closes)
+            source_info = "API-Fallback"
+
+        if hi_52w <= lo_52w:
+            logger.warning(f"Ungültige IV-Spanne für {symbol} (lo={lo_52w}, hi={hi_52w})")
             return None
 
-        current_iv = iv_values[-1]
-        iv_min = min(iv_values)
-        iv_max = max(iv_values)
-
-        if iv_max == iv_min:
-            logger.warning("IV range is zero – cannot compute IV Rank")
-            return None
-
-        iv_rank = (current_iv - iv_min) / (iv_max - iv_min) * 100.0
+        # Als Integer runden
+        iv_rank = int(round((current_iv - lo_52w) / (hi_52w - lo_52w) * 100.0))
 
         logger.info(
-            f"{symbol} IV Rank: {iv_rank:.1f}% "
-            f"(current IV={current_iv:.4f}, range={iv_min:.4f}-{iv_max:.4f}, "
-            f"lookback={lookback_days}d)"
+            f"{symbol} IV Rank ({source_info}): {iv_rank} | "
+            f"current={current_iv:.4f} ({current_iv*100:.2f}%) | "
+            f"52W-lo={lo_52w:.4f} 52W-hi={hi_52w:.4f}"
         )
 
-        return round(iv_rank, 1)
+        return iv_rank
 
     except Exception as e:
-        logger.error(f"Error calculating IV Rank: {e}", exc_info=True)
+        logger.error(f"Fehler bei IV-Rank-Berechnung für {symbol}: {e}", exc_info=True)
         return None
+
+def diagnose_iv_history(
+    *,
+    ib,
+    symbol: str,
+    get_index_contract_callable: Callable[[], Contract],
+    logger,
+    config: Optional[Any] = None,
+):
+    """Diagnose-Funktion zum manuellen Testen des IV Ranks via tools/diagnose_iv.py."""
+    logger.info(f"=== Starte IV-Diagnose für {symbol} ===")
+
+    try:
+        contract = get_index_contract_callable()
+        ib.qualifyContracts(contract)
+
+        bars = ib.reqHistoricalData(
+            contract,
+            endDateTime='',
+            durationStr='1 Y',
+            barSizeSetting='1 day',
+            whatToShow='OPTION_IMPLIED_VOLATILITY',
+            useRTH=True,
+            formatDate=1,
+        )
+
+        valid = [b for b in (bars or []) if b.close is not None and b.close > 0]
+        if not valid:
+            logger.error("Keine IV-Daten von IB API empfangen")
+            return
+
+        current_iv = valid[-1].close
+
+        # 1. Reine API-Spanne (365 Tage)
+        closes = [b.close for b in valid]
+        lows = [b.low for b in valid if b.low is not None and b.low > 0]
+        highs = [b.high for b in valid if b.high is not None and b.high > 0]
+
+        api_lo = min(lows + closes) if lows else min(closes)
+        api_hi = max(highs + closes) if highs else max(closes)
+        api_rank = (current_iv - api_lo) / (api_hi - api_lo) * 100.0 if api_hi > api_lo else 0.0
+
+        logger.info(
+            f"[API UNMODIFIED]  bars={len(valid)} | current={current_iv*100:.2f}% | "
+            f"lo={api_lo*100:.2f}% hi={api_hi*100:.2f}% -> IV Rank = {api_rank:.1f}%"
+        )
+
+        # 2. Kalibrierte Spanne aus Konfiguration
+        extremes = _extract_iv_extremes(config, symbol)
+        if extremes and "low" in extremes and "high" in extremes:
+            json_lo, json_hi = extremes["low"], extremes["high"]
+            json_rank = int(round((current_iv - json_lo) / (json_hi - json_lo) * 100.0)) if json_hi > json_lo else 0
+
+            logger.info(
+                f"[JSON CALIBRATED] current={current_iv*100:.2f}% | "
+                f"lo={json_lo*100:.2f}% hi={json_hi*100:.2f}% -> IV Rank = {json_rank} (MATCH TWS)"
+            )
+        else:
+            logger.warning(f"Keine Kalibrierungswerte für {symbol} in trade_templates.json gefunden.")
+
+    except Exception as e:
+        logger.error(f"Fehler bei der IV-Diagnose: {e}", exc_info=True)
+
+    logger.info("=== IV-Diagnose Beendet ===")

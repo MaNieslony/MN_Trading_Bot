@@ -244,7 +244,6 @@ def get_iv_rank_adapter(bot) -> Optional[float]:
         ib=bot.ib,
         symbol=bot.SYMBOL,
         get_index_contract_callable=bot.get_SPX_index_contract,
-        lookback_days=getattr(bot, "IV_RANK_LOOKBACK_DAYS", 365),
         logger=bot.logger,
     )
 
